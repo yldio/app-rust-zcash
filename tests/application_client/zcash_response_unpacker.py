@@ -10,6 +10,9 @@ def pop_size_prefixed_buf_from_buf(buffer:bytes) -> Tuple[bytes, int, bytes]:
     data_len = buffer[0]
     return buffer[1+data_len:], data_len, buffer[1:data_len+1]
 
+def pop_fixed_len_from_buf(buffer:bytes, data_len:int) -> Tuple[bytes, bytes]:
+    return buffer[1+data_len:], buffer[:data_len+1]
+
 # Unpack from response:
 # response = app_name (var)
 def unpack_get_app_name_response(response: bytes) -> str:
@@ -43,18 +46,20 @@ def unpack_get_app_and_version_response(response: bytes) -> Tuple[str, str]:
     return app_name_raw.decode("ascii"), version_raw.decode("ascii")
 
 # Unpack from response:
-# response = pub_key_len (1)
-#            pub_key (var)
-#            chain_code_len (1)
-#            chain_code (var)
-def unpack_get_public_key_response(response: bytes) -> Tuple[int, bytes, int, bytes]:
+# response = len(pub_key) (1) || pub_key (var) ||
+#            len(addr) (1) || addr (var) || bip32_chain_code (32)
+def unpack_get_public_key_response(response: bytes) -> Tuple[bytes, str, bytes]:
     response, pub_key_len, pub_key = pop_size_prefixed_buf_from_buf(response)
-    response, chain_code_len, chain_code = pop_size_prefixed_buf_from_buf(response)
+    response, address_len, addr = pop_size_prefixed_buf_from_buf(response)
+    response, chain_code = pop_fixed_len_from_buf(response, 32)
+
+    addr_str = addr.decode("ascii")
 
     assert pub_key_len == 65
-    assert chain_code_len == 32
+    assert address_len > 0
     assert len(response) == 0
-    return pub_key_len, pub_key, chain_code_len, chain_code
+
+    return pub_key, addr_str, chain_code
 
 # Unpack from response:
 # response = der_sig_len (1)

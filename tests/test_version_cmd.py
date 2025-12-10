@@ -1,7 +1,7 @@
 from pathlib import Path
 import tomli
-from application_client.boilerplate_command_sender import BoilerplateCommandSender
-from application_client.boilerplate_response_unpacker import unpack_get_version_response
+from application_client.zcash_command_sender import ZcashCommandSender
+from application_client.zcash_response_unpacker import unpack_get_version_response
 
 # In this test we check the behavior of the device when asked to provide the app version
 def test_version(backend):
@@ -10,7 +10,7 @@ def test_version(backend):
         data = tomli.load(f)
     version = tuple(map(int, data['package']['version'].split('.')))
     # Use the app interface instead of raw interface
-    client = BoilerplateCommandSender(backend)
+    client = ZcashCommandSender(backend)
     # Send the GET_VERSION instruction
     rapdu = client.get_version()
     # Use an helper to parse the response, assert the values
