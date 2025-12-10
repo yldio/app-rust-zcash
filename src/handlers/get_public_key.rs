@@ -16,38 +16,47 @@
  *****************************************************************************/
 
 use crate::app_ui::address::ui_display_pk;
-use crate::utils::Bip32Path;
+use crate::log::debug;
+use crate::utils::{
+    compress_public_key, derive_public_key, public_key_to_address_base58, Bip32Path, PubKeyWithCC,
+};
 use crate::AppSW;
-use ledger_device_sdk::ecc::{Secp256k1, SeedDerive};
-use ledger_device_sdk::hash::{sha3::Keccak256, HashInit};
 use ledger_device_sdk::io::Comm;
 
 pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppSW> {
     let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
     let path: Bip32Path = data.try_into()?;
 
-    let (k, cc) = Secp256k1::derive_from(path.as_ref());
-    let pk = k.public_key().map_err(|_| AppSW::IncorrectData)?;
+    let PubKeyWithCC {
+        public_key,
+        public_key_len,
+        chain_code,
+    } = derive_public_key(&path)?;
+    let public_key = &public_key[..public_key_len];
+
+    let comp_public_key = compress_public_key(public_key)?;
+    let address_str = public_key_to_address_base58::<150>(&comp_public_key)?;
 
     // Display address on device if requested
-    if display {
-        let mut keccak256 = Keccak256::new();
-        let mut address: [u8; 32] = [0u8; 32];
-
-        let _ = keccak256.hash(&pk.pubkey[1..], &mut address);
-
-        if !ui_display_pk(&address)? {
-            return Err(AppSW::Deny);
-        }
+    if display && !ui_display_pk(&address_str)? {
+        return Err(AppSW::Deny);
     }
 
-    comm.append(&[pk.pubkey.len() as u8]);
-    comm.append(&pk.pubkey);
+    comm.append(&[public_key_len as u8]);
+    comm.append(public_key);
 
-    const CHAINCODE_LEN: u8 = 32;
-    let code = cc.unwrap();
-    comm.append(&[CHAINCODE_LEN]);
-    comm.append(&code.value);
+    debug!("Public Key: {:02X?}", public_key);
+
+    let addr_len = address_str.len() as u8;
+    comm.append(&[addr_len]);
+    comm.append(address_str.as_bytes());
+
+    debug!("Address: {}", address_str);
+
+    // Don't encode chain code length, it's always 32 bytes
+    comm.append(&chain_code);
+
+    debug!("Chain Code: {:02X?}", chain_code);
 
     Ok(())
 }

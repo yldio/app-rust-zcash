@@ -18,7 +18,6 @@
 #![no_std]
 #![no_main]
 
-mod utils;
 mod app_ui {
     pub mod address;
     pub mod menu;
@@ -33,7 +32,9 @@ mod handlers {
 }
 
 mod consts;
+mod log;
 mod settings;
+mod utils;
 
 use app_ui::menu::ui_menu_main;
 use handlers::{
@@ -42,11 +43,11 @@ use handlers::{
     sign_tx::{handler_sign_tx, TxContext},
 };
 use ledger_device_sdk::{
-    io::{ApduHeader, Comm, Reply},
+    io::{ApduHeader, Comm, Reply, StatusWords},
     nbgl::init_comm,
 };
 
-ledger_device_sdk::set_panic!(ledger_device_sdk::exiting_panic);
+ledger_device_sdk::set_panic!(panic_handler);
 
 // Required for using String, Vec, format!...
 extern crate alloc;
@@ -60,6 +61,7 @@ use crate::{
         INS_SIGN_MESSAGE, ZCASH_CLA,
     },
     handlers::{get_trusted_input::handler_get_trusted_input, sign_msg::handler_sign_msg},
+    log::{debug, error},
 };
 
 pub const P1_FIRST: u8 = 0x00;
@@ -229,6 +231,8 @@ extern "C" fn sample_main() {
     let mut comm = Comm::new().set_expected_cla(ZCASH_CLA);
     init_comm(&mut comm);
 
+    debug!("App started");
+
     let mut tx_ctx = TxContext::new();
 
     tx_ctx.home = ui_menu_main(&mut comm);
@@ -263,4 +267,13 @@ fn handle_apdu(comm: &mut Comm, ins: &Instruction, ctx: &mut TxContext) -> Resul
         }
         Instruction::SignMessage { first, next } => handler_sign_msg(comm, ctx, *first, *next),
     }
+}
+
+/// In case of runtime problems, return an internal error and exit the app
+#[inline]
+pub fn panic_handler(_info: &PanicInfo) -> ! {
+    error!("Panicking: {:?}\n", _info);
+    let mut comm = Comm::new();
+    comm.reply(StatusWords::Panic);
+    ledger_device_sdk::exit_app(1)
 }

@@ -39,7 +39,7 @@ pub fn ui_menu_main(_: &mut Comm) -> NbglHomeAndSettings {
         .glyph(&FERRIS)
         .settings(settings.get_mut(), &settings_strings)
         .infos(
-            "Boilerplate",
+            "Zcash",
             env!("CARGO_PKG_VERSION"),
             env!("CARGO_PKG_AUTHORS"),
         )
