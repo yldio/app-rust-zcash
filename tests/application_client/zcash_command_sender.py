@@ -56,6 +56,12 @@ class ZcashCommandSender:
         self.backend = backend
 
 
+    def exchange_raw(self, data: str) -> (int, bytes):
+        data = bytes.fromhex(data)
+        res = self.backend.exchange_raw(data)
+        return res.status, res.data
+
+
     def get_app_and_version(self) -> RAPDU:
         return self.backend.exchange(cla=0xB0,  # specific CLA for BOLOS
                                      ins=0x01,  # specific INS for get_app_and_version

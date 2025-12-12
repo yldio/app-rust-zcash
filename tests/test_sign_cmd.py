@@ -9,6 +9,39 @@ from utils import ROOT_SCREENSHOT_PATH, check_signature_validity
 
 # In these tests we check the behavior of the device when asked to sign a transaction
 
+def test_trusted_input(backend):
+    TXID_LEN = 112
+
+    transport = ZcashCommandSender(backend)
+
+    # 42 - Trusted Input
+    # e0 42 00 00 11 00 00 00 00 05 0000800a27a726b4d0d6c201
+    sw, _ = transport.exchange_raw("e04200001100000000050000800a27a726b4d0d6c201")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw("e04280002598cd6cd9559cd98109ad0622f899bc38805f11648e4f985ebe344b8238f87b13010000006b")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw("e04280003248304502210095104ae9d53a95105be4ba5a31caddff2ae83ced24b21ab4aec6d735d568fad102206e054b158047529bb736")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw("e042800032c810902ea7fc8d92f3f604c1b2a8bb0b92f0e6c016a8012102010a560c7325827df0212bca20f5cf6556b1345991b6b64b46")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw("e04280000b9c616e758230a5ffffffff")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw("e04280000102")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw("e0428000221595dd04000000001976a914ca3ba17907dde979bf4e88f5c1be0ddf0847b25d88ac")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw("e042800022a245117c140000001976a914c8b56e00740e62449a053c15bdd4809f720b5cb588ac")
+    assert sw == 0x9000
+    sw, _ = transport.exchange_raw("e042800003000000")
+    assert sw == 0x9000
+
+    sw, txid = transport.exchange_raw("e0428000090000000004f9081a00")
+    txid = txid.hex()
+    # MAY: txid: 3200f5bf58854aa4e2e3b82aa2040c0bc3a6dc9b8ac6acb5e15bf0cfeacd09e77249c18a000000001595dd04000000000ee2aedafd236561
+    print(f"MAY: txid: {txid}")
+    assert sw == 0x9000
+    assert len(txid) == TXID_LEN
+
 # In this test a transaction is sent to the device to be signed and validated on screen.
 # The transaction is short and will be sent in one chunk.
 # We will ensure that the displayed information is correct by using screenshots comparison.

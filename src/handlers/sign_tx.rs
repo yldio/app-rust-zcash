@@ -15,6 +15,7 @@
  *  limitations under the License.
  *****************************************************************************/
 use crate::app_ui::sign::ui_display_tx;
+use crate::parser::Parser;
 use crate::utils::Bip32Path;
 use crate::{AppSW, SignHashFlag};
 use alloc::vec::Vec;
@@ -42,6 +43,9 @@ pub struct TxContext {
     path: Bip32Path,
     review_finished: bool,
     pub home: NbglHomeAndSettings,
+    // Transaction input to catch for a Trusted Input lookup
+    transaction_trusted_input_idx: Option<u32>,
+    pub parser: Parser,
 }
 
 // Implement constructor for TxInfo with default values
@@ -53,18 +57,32 @@ impl TxContext {
             path: Default::default(),
             review_finished: false,
             home: Default::default(),
+            transaction_trusted_input_idx: None,
+            parser: Parser::new(),
         }
     }
+
+    pub fn set_transaction_trusted_input_idx(&mut self, idx: u32) {
+        self.transaction_trusted_input_idx = idx.into();
+        self.parser.set_transaction_trusted_input_idx(idx);
+    }
+
+    pub fn transaction_trusted_input_idx(&self) -> Option<u32> {
+        self.transaction_trusted_input_idx
+    }
+
     // Get review status
     #[allow(dead_code)]
     pub fn finished(&self) -> bool {
         self.review_finished
     }
     // Implement reset for TxInfo
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.raw_tx.clear();
         self.path = Default::default();
         self.review_finished = false;
+        self.transaction_trusted_input_idx = None;
+        self.parser = Parser::new();
     }
 }
 
@@ -88,7 +106,7 @@ pub fn handler_sign_tx(
     // the transaction if it is the last chunk.
     } else {
         if ctx.raw_tx.len() + data.len() > MAX_TRANSACTION_LEN {
-            return Err(AppSW::TxWrongLength);
+            return Err(AppSW::WrongApduLength);
         }
 
         // Append data to raw_tx

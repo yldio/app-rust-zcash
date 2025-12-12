@@ -47,6 +47,18 @@ macro_rules! _debug {
 pub(crate) use _debug as debug;
 
 #[cfg(feature = "log_debug")]
+macro_rules! _info {
+    ($fmt:literal $($arg:tt)*) => ({use $crate::log::log; log!("INFO", $fmt $($arg)*)})
+}
+
+#[cfg(not(feature = "log_debug"))]
+macro_rules! _info {
+    ($fmt:literal $($arg:tt)*) => {{}};
+}
+
+pub(crate) use _info as info;
+
+#[cfg(feature = "log_debug")]
 macro_rules! _error {
     ($fmt:literal $($arg:tt)*) => ({use $crate::log::log; log!("ERROR", $fmt $($arg)*)})
 }

@@ -33,6 +33,7 @@ mod handlers {
 
 mod consts;
 mod log;
+mod parser;
 mod settings;
 mod utils;
 
@@ -45,6 +46,7 @@ use handlers::{
 use ledger_device_sdk::{
     io::{ApduHeader, Comm, Reply},
     nbgl::init_comm,
+    random::rand_bytes,
 };
 
 ledger_device_sdk::set_panic!(panic_handler);
@@ -62,6 +64,7 @@ use crate::{
     },
     handlers::{get_trusted_input::handler_get_trusted_input, sign_msg::handler_sign_msg},
     log::{debug, error},
+    settings::Settings,
 };
 
 pub const P1_FIRST: u8 = 0x00;
@@ -100,7 +103,8 @@ pub enum AppSW {
     Licensing = 0x6F42,
     Halted = 0x6FAA,
     Deny = 0x6985,
-    TxWrongLength = 0x6F00, // TechnicalProblem = 0x6F00,
+    //TxWrongLength = 0x6F00,
+    TechnicalProblem = 0x6F00,
     VersionParsingFail = 0x6F01,
     TxParsingFail = 0x6F02,
     Ok = 0x9000,
@@ -223,6 +227,16 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
     }
 }
 
+fn try_init_trusted_input_key_storage() {
+    if Settings.trusted_input_key().is_none() {
+        let mut rng = [0u8; 32];
+        rand_bytes(&mut rng);
+
+        Settings.set_trusted_input_key(rng);
+        debug!("Initialized trusted input key storage");
+    }
+}
+
 #[no_mangle]
 extern "C" fn sample_main() {
     // Create the communication manager, and configure it to accept only APDU from the 0xe0 class.
@@ -230,6 +244,8 @@ extern "C" fn sample_main() {
     // BadCla status word.
     let mut comm = Comm::new().set_expected_cla(ZCASH_CLA);
     init_comm(&mut comm);
+
+    try_init_trusted_input_key_storage();
 
     debug!("App started");
 
@@ -260,7 +276,7 @@ fn handle_apdu(comm: &mut Comm, ins: &Instruction, ctx: &mut TxContext) -> Resul
         Instruction::GetVersion => handler_get_version(comm),
         Instruction::GetPubkey { display } => handler_get_public_key(comm, *display),
         Instruction::GetTrustedInput { first, next } => {
-            handler_get_trusted_input(comm, *first, *next)
+            handler_get_trusted_input(comm, ctx, *first, *next)
         }
         Instruction::SignTx { flag, first, next } => {
             handler_sign_tx(comm, ctx, *flag, *first, *next)
