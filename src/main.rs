@@ -271,7 +271,7 @@ fn handle_apdu(comm: &mut Comm, ins: &Instruction, ctx: &mut TxContext) -> Resul
 
 /// In case of runtime problems, return an internal error and exit the app
 #[inline]
-pub fn panic_handler(_info: &PanicInfo) -> ! {
-    error!("Panicking: {:?}\n", _info);
-    ledger_device_sdk::exiting_panic(_info)
+pub fn panic_handler(info: &PanicInfo) -> ! {
+    error!("Panicking: {:?}\n", info);
+    ledger_device_sdk::exiting_panic(info)
 }
