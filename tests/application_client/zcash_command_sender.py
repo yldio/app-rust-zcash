@@ -1,10 +1,14 @@
 from enum import IntEnum
 from typing import Generator, List, Optional
 from contextlib import contextmanager
+from struct import pack
 
 from ragger.backend.interface import BackendInterface, RAPDU
 from ragger.bip import pack_derivation_path
 
+from application_client.zcash_transaction import split_tx_to_chunks_v5
+
+MAGIC_TRUSTED_INPUT: int = 0x32
 
 MAX_APDU_LEN: int = 255
 
@@ -13,21 +17,16 @@ CLA: int = 0xE0
 class P1(IntEnum):
     # Parameter 1 for first APDU number.
     P1_START = 0x00
-    # Parameter 1 for maximum APDU number.
-    P1_MAX   = 0x03
+    # Parameter 2 for more APDU to receive.
+    P1_MORE = 0x80
     # Parameter 1 for screen confirmation for GET_PUBLIC_KEY.
     P1_CONFIRM = 0x01
-
-class P2(IntEnum):
-    # Parameter 2 for last APDU to receive.
-    P2_LAST = 0x00
-    # Parameter 2 for more APDU to receive.
-    P2_MORE = 0x80
 
 class InsType(IntEnum):
     GET_VERSION    = 0x03
     GET_APP_NAME   = 0x04
     GET_WALLET_PUBLIC_KEY = 0x40
+    GET_TRUSTED_INPUT     = 0x42
     SIGN_TX        = 0x06
 
 class Errors(IntEnum):
@@ -66,7 +65,7 @@ class ZcashCommandSender:
         return self.backend.exchange(cla=0xB0,  # specific CLA for BOLOS
                                      ins=0x01,  # specific INS for get_app_and_version
                                      p1=P1.P1_START,
-                                     p2=P2.P2_LAST,
+                                     p2=0x00,
                                      data=b"")
 
 
@@ -74,7 +73,7 @@ class ZcashCommandSender:
         return self.backend.exchange(cla=CLA,
                                      ins=InsType.GET_VERSION,
                                      p1=P1.P1_START,
-                                     p2=P2.P2_LAST,
+                                     p2=0x00,
                                      data=b"")
 
 
@@ -82,7 +81,7 @@ class ZcashCommandSender:
         return self.backend.exchange(cla=CLA,
                                      ins=InsType.GET_APP_NAME,
                                      p1=P1.P1_START,
-                                     p2=P2.P2_LAST,
+                                     p2=0x00,
                                      data=b"")
 
 
@@ -90,7 +89,7 @@ class ZcashCommandSender:
         return self.backend.exchange(cla=CLA,
                                      ins=InsType.GET_WALLET_PUBLIC_KEY,
                                      p1=P1.P1_START,
-                                     p2=P2.P2_LAST,
+                                     p2=0x00,
                                      data=pack_derivation_path(path))
 
 
@@ -99,17 +98,41 @@ class ZcashCommandSender:
         with self.backend.exchange_async(cla=CLA,
                                          ins=InsType.GET_WALLET_PUBLIC_KEY,
                                          p1=P1.P1_CONFIRM,
-                                         p2=P2.P2_LAST,
+                                         p2=0x00,
                                          data=pack_derivation_path(path)) as response:
             yield response
 
+    @contextmanager
+    def get_trusted_input(self, transaction: bytes, trusted_input_idx: int) -> Generator[None, None, None]:
+        chunks = split_tx_to_chunks_v5(transaction)
+        # convert trusted-input index to 4 bytes big endian
+        trusted_idx = pack(">I", trusted_input_idx)
+        # prepend the trusted input index to the first chunk
+        chunks[0] = bytes(trusted_idx + chunks[0])
+
+        p1 = P1.P1_START
+
+        for c in chunks[:-1]:
+            self.backend.exchange(cla=CLA,
+                                  ins=InsType.GET_TRUSTED_INPUT,
+                                  p1=p1,
+                                  p2=0x00,
+                                  data=c)
+            p1 = P1.P1_MORE
+
+        with self.backend.exchange_async(cla=CLA,
+                                            ins=InsType.GET_TRUSTED_INPUT,
+                                            p1=P1.P1_MORE,
+                                            p2=0x00,
+                                            data=chunks[-1]) as response:
+            yield response
 
     @contextmanager
     def sign_tx(self, path: str, transaction: bytes) -> Generator[None, None, None]:
         self.backend.exchange(cla=CLA,
                               ins=InsType.SIGN_TX,
                               p1=P1.P1_START,
-                              p2=P2.P2_MORE,
+                              p2=0x00,
                               data=pack_derivation_path(path))
         messages = split_message(transaction, MAX_APDU_LEN)
         idx: int = P1.P1_START + 1
@@ -118,14 +141,14 @@ class ZcashCommandSender:
             self.backend.exchange(cla=CLA,
                                   ins=InsType.SIGN_TX,
                                   p1=idx,
-                                  p2=P2.P2_MORE,
+                                  p2=0x00,
                                   data=msg)
             idx += 1
 
         with self.backend.exchange_async(cla=CLA,
                                          ins=InsType.SIGN_TX,
                                          p1=idx,
-                                         p2=P2.P2_LAST,
+                                         p2=0x00,
                                          data=messages[-1]) as response:
             yield response
 

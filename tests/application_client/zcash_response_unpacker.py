@@ -1,5 +1,6 @@
 from typing import Tuple
 from struct import unpack
+from .zcash_command_sender import MAGIC_TRUSTED_INPUT
 
 # remainder, data_len, data
 def pop_sized_buf_from_buffer(buffer:bytes, size:int) -> Tuple[bytes, bytes]:
@@ -72,3 +73,19 @@ def unpack_sign_tx_response(response: bytes) -> Tuple[int, bytes, int]:
     assert len(response) == 0
 
     return der_sig_len, der_sig, int.from_bytes(v, byteorder='big')
+
+
+# *Description*                                                                       | *Length*
+# Magic version (*32*)                                                                | 1
+# Flags                                                                               | 1
+# Nonce                                                                               | 2
+# Associated transaction hash                                                         | 32
+# Index in associated transaction (little endian)                                     | 4
+# Associated amount (little endian)                                                   | 8
+# Signature                                                                           | 8
+def unpack_trusted_input_response(response: bytes) -> (bytes, int, int, bytes, bytes):
+    assert len(response) == 56
+    magic, _flags, nonce, txid, trusted_input_idx, amount, sign =  unpack("<BBH32sIQ8s", response)
+    assert magic == MAGIC_TRUSTED_INPUT
+
+    return (txid, trusted_input_idx, amount, sign, nonce)

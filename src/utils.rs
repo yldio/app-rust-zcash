@@ -213,3 +213,14 @@ pub fn write_u32_le(buffer: &mut [u8], value: u32) -> Result<(), AppSW> {
     buffer[..4].copy_from_slice(&value.to_le_bytes());
     Ok(())
 }
+
+pub struct HexSlice<'a>(pub &'a [u8]);
+
+impl<'a> core::fmt::Display for HexSlice<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for byte in self.0 {
+            write!(f, "{:02X}", byte)?;
+        }
+        Ok(())
+    }
+}

@@ -23,6 +23,7 @@ use zcash_transparent::bundle::{Authorization, Authorized, OutPoint, TxIn};
 
 use crate::log::{debug, error, info};
 use crate::utils::blake2b_256_pers::{AsWriter, Blake2b256Personalization};
+use crate::utils::HexSlice;
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -496,21 +497,21 @@ impl Parser {
                 self.prevouts_hasher.finalize(&mut hash).unwrap();
                 hash
             };
-            debug!("Prevouts hash: {:X?}", prevouts_hash);
+            debug!("Prevouts hash: {}", HexSlice(&prevouts_hash));
 
             let sequence_hash = {
                 let mut hash = [0u8; 32];
                 self.sequence_hasher.finalize(&mut hash).unwrap();
                 hash
             };
-            debug!("Sequence hash: {:X?}", sequence_hash);
+            debug!("Sequence hash: {}", HexSlice(&sequence_hash));
 
             let outputs_hash = {
                 let mut hash = [0u8; 32];
                 self.outputs_hasher.finalize(&mut hash).unwrap();
                 hash
             };
-            debug!("Outputs hash: {:X?}", outputs_hash);
+            debug!("Outputs hash: {}", HexSlice(&outputs_hash));
 
             let header_hash = {
                 let mut hash = [0u8; 32];
@@ -531,7 +532,7 @@ impl Parser {
                 hasher.finalize(&mut hash).unwrap();
                 hash
             };
-            debug!("Header hash: {:X?}", header_hash);
+            debug!("Header hash: {}", HexSlice(&header_hash));
 
             let transparent_hash = {
                 let mut hash = [0u8; 32];
@@ -546,21 +547,21 @@ impl Parser {
                 hasher.finalize(&mut hash).unwrap();
                 hash
             };
-            debug!("Transparent hash: {:X?}", transparent_hash);
+            debug!("Transparent hash: {}", HexSlice(&transparent_hash));
 
             let sapling_hash = {
                 let mut hash = [0u8; 32];
                 self.sapling_hasher.finalize(&mut hash).unwrap();
                 hash
             };
-            debug!("Sapling hash: {:X?}", sapling_hash);
+            debug!("Sapling hash: {}", HexSlice(&sapling_hash));
 
             let orchard_hash = {
                 let mut hash = [0u8; 32];
                 self.orchard_hasher.finalize(&mut hash).unwrap();
                 hash
             };
-            debug!("Orchard hash: {:X?}", orchard_hash);
+            debug!("Orchard hash: {}", HexSlice(&orchard_hash));
 
             let mut personalization = [0u8; 16];
             personalization[..12].copy_from_slice(ZCASH_TX_PERSONALIZATION_PREFIX);
@@ -577,7 +578,7 @@ impl Parser {
 
             hasher.finalize(&mut self.tx_id).unwrap();
 
-            debug!("Transaction ID hash: {:X?}", self.tx_id);
+            debug!("Transaction ID hash: {}", HexSlice(&self.tx_id));
         } else {
             error!("TX ID computation for versions other than V5 is not implemented");
             return Err(ParseError::InvalidFormat);

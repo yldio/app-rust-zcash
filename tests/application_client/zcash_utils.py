@@ -63,6 +63,16 @@ def read_uint(buf: BytesIO,
 
     return int.from_bytes(b, byteorder)
 
+def read_compactsize(buf, i):
+    b = buf[i]
+    if b < 0xfd:
+        return b, i+1
+    if b == 0xfd:
+        return int.from_bytes(buf[i+1:i+3], 'little'), i+3
+    if b == 0xfe:
+        return int.from_bytes(buf[i+1:i+5], 'little'), i+5
+    return int.from_bytes(buf[i+1:i+9], 'little'), i+9
+
 def t_address_from_pubkey(pub_key: bytes) -> str:
     # Compress the public key
     if pub_key[64] % 2 == 0:
