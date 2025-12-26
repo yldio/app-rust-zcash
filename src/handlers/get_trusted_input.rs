@@ -1,7 +1,7 @@
 use crate::{
     handlers::sign_tx::TxContext,
     log::{self, error},
-    parser::ParseMode,
+    parser::{ParserMode, ParserSourceError},
     settings::Settings,
     utils::{read_u32, Endianness},
     AppSW,
@@ -36,10 +36,13 @@ pub fn handler_get_trusted_input(
     }
 
     ctx.parser
-        .parse_chunk(data, ParseMode::TrustedInput)
+        .parse_chunk(data, ParserMode::TrustedInput)
         .map_err(|e| {
-            error!("Error parsing trusted input: {:?}", e);
-            AppSW::IncorrectData
+            error!("Error parsing trusted input: {:#?}", e);
+            match e.source {
+                ParserSourceError::Hash(_) => AppSW::TechnicalProblem,
+                _ => AppSW::IncorrectData,
+            }
         })?;
 
     if ctx.parser.is_finished() {

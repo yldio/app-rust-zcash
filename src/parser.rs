@@ -4,9 +4,9 @@ use zcash_primitives::transaction::sighash_v5::{
     ZCASH_TRANSPARENT_AMOUNTS_HASH_PERSONALIZATION, ZCASH_TRANSPARENT_SCRIPTS_HASH_PERSONALIZATION,
 };
 
-use core2::io::{self, Read};
+use core2::io::{Error as IoError, Read};
 use ledger_device_sdk::hash::blake2::Blake2b_256;
-use ledger_device_sdk::hash::HashInit;
+use ledger_device_sdk::hash::{HashError, HashInit};
 use zcash_encoding::CompactSize;
 use zcash_primitives::encoding::ReadBytesExt;
 use zcash_primitives::transaction::txid::{
@@ -16,7 +16,7 @@ use zcash_primitives::transaction::txid::{
 };
 use zcash_primitives::transaction::TxVersion;
 use zcash_protocol::consensus::BranchId;
-use zcash_protocol::value::Zatoshis;
+use zcash_protocol::value::{BalanceError, Zatoshis};
 use zcash_transparent::address::Script;
 use zcash_transparent::bundle::OutPoint;
 
@@ -24,18 +24,89 @@ use crate::log::{debug, error, info};
 use crate::utils::blake2b_256_pers::{AsWriter, Blake2b256Personalization};
 use crate::utils::HexSlice;
 
+#[allow(unused)]
 #[derive(Debug)]
-pub enum ParseError {
-    InvalidFormat,
+pub enum ParserSourceError {
+    Io(IoError),
+    Hash(HashError),
+    Balance(BalanceError),
+    Custom(&'static str),
 }
 
-pub enum ParseMode {
+impl From<IoError> for ParserSourceError {
+    fn from(e: IoError) -> Self {
+        ParserSourceError::Io(e)
+    }
+}
+
+impl From<HashError> for ParserSourceError {
+    fn from(e: HashError) -> Self {
+        ParserSourceError::Hash(e)
+    }
+}
+
+impl From<BalanceError> for ParserSourceError {
+    fn from(e: BalanceError) -> Self {
+        ParserSourceError::Balance(e)
+    }
+}
+
+impl From<&'static str> for ParserSourceError {
+    fn from(e: &'static str) -> Self {
+        ParserSourceError::Custom(e)
+    }
+}
+
+#[derive(Debug)]
+pub struct ParserError {
+    pub source: ParserSourceError,
+    #[allow(unused)]
+    pub file: &'static str,
+    #[allow(unused)]
+    pub line: u32,
+}
+
+impl ParserError {
+    #[track_caller]
+    pub fn from_str(reason: &'static str) -> ParserError {
+        ParserError {
+            source: reason.into(),
+            file: file!(),
+            line: line!(),
+        }
+    }
+}
+
+macro_rules! ok {
+    ($expr:expr) => {{
+        match $expr {
+            Ok(v) => Ok(v),
+            Err(e) => Err(ParserError {
+                source: e.into(),
+                file: file!(),
+                line: line!(),
+            }),
+        }?
+    }};
+    ($expr:expr, $reason:literal) => {{
+        match $expr {
+            Ok(v) => Ok(v),
+            Err(()) => Err(ParserError {
+                source: $reason.into(),
+                file: file!(),
+                line: line!(),
+            }),
+        }?
+    }};
+}
+
+pub enum ParserMode {
     TrustedInput,
     _Signature,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub enum ParseState {
+pub enum ParserState {
     #[default]
     None,
     WaitInput,
@@ -89,9 +160,9 @@ impl Read for ByteReader<'_> {
 }
 
 pub struct Parser {
-    _mode: Option<ParseMode>,
+    _mode: Option<ParserMode>,
 
-    state: ParseState,
+    state: ParserState,
     tx_version: Option<TxVersion>,
     branch_id: Option<BranchId>,
     locktime: u32,
@@ -128,7 +199,7 @@ impl Parser {
     pub fn new() -> Self {
         Parser {
             _mode: None,
-            state: ParseState::None,
+            state: ParserState::None,
             tx_version: None,
             branch_id: None,
             locktime: 0,
@@ -160,7 +231,7 @@ impl Parser {
     }
 
     pub fn is_finished(&self) -> bool {
-        matches!(self.state, ParseState::TransactionParsed)
+        matches!(self.state, ParserState::TransactionParsed)
     }
 
     pub fn set_transaction_trusted_input_idx(&mut self, idx: u32) {
@@ -179,32 +250,32 @@ impl Parser {
         self.amount
     }
 
-    pub fn parse_chunk(&mut self, data: &[u8], _mode: ParseMode) -> Result<(), ParseError> {
+    pub fn parse_chunk(&mut self, data: &[u8], _mode: ParserMode) -> Result<(), ParserError> {
         let mut reader = ByteReader::new(data);
 
         while reader.remaining_bytes() > 0 {
             let prev_state = self.state;
 
             match self.state {
-                ParseState::None => self.parse_header(&mut reader)?,
-                ParseState::WaitInput => self.parse_input(&mut reader)?,
-                ParseState::ProcessInputScript {
+                ParserState::None => self.parse_header(&mut reader)?,
+                ParserState::WaitInput => self.parse_input(&mut reader)?,
+                ParserState::ProcessInputScript {
                     size,
                     remaining_size,
                 } => self.parse_input_script(&mut reader, size, remaining_size)?,
-                ParseState::InputHashingDone => {
+                ParserState::InputHashingDone => {
                     self.parse_input_hashing_done(&mut reader)?;
                 }
-                ParseState::WaitOutput => self.parse_output(&mut reader)?,
-                ParseState::ProcessOutputScript {
+                ParserState::WaitOutput => self.parse_output(&mut reader)?,
+                ParserState::ProcessOutputScript {
                     size,
                     remaining_size,
                 } => self.parse_output_script(&mut reader, size, remaining_size)?,
-                ParseState::OutputHashingDone => {
+                ParserState::OutputHashingDone => {
                     self.parse_output_hashing_done(&mut reader)?;
                 }
-                ParseState::ProcessExtra => self.parse_process_extra(&mut reader)?,
-                ParseState::TransactionParsed => {
+                ParserState::ProcessExtra => self.parse_process_extra(&mut reader)?,
+                ParserState::TransactionParsed => {
                     break;
                 }
             }
@@ -217,19 +288,11 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_header(&mut self, reader: &mut ByteReader<'_>) -> Result<(), ParseError> {
-        let version = TxVersion::read(&mut *reader)
-            .inspect_err(|v| error!("Error reading TxVersion: {:#?}", v))
-            .unwrap();
+    fn parse_header(&mut self, reader: &mut ByteReader<'_>) -> Result<(), ParserError> {
+        let version = ok!(TxVersion::read(&mut *reader));
 
-        let consensus_branch_id = reader
-            .read_u32_le()
-            .and_then(|value| {
-                BranchId::try_from(value).map_err(|_e| {
-                    io::Error::new(io::ErrorKind::InvalidData, "invalid consensus branch id")
-                })
-            })
-            .unwrap();
+        let value = ok!(reader.read_u32_le());
+        let consensus_branch_id = ok!(BranchId::try_from(value));
 
         info!(
             "Transaction version: {:?}, consensus branch id: {:?}",
@@ -238,7 +301,7 @@ impl Parser {
         self.tx_version = Some(version);
         self.branch_id = Some(consensus_branch_id);
 
-        let input_count: usize = CompactSize::read_t(&mut *reader).unwrap();
+        let input_count: usize = ok!(CompactSize::read_t(&mut *reader));
         info!("Input count: {}", input_count);
 
         // Init TX hashers for V5 version
@@ -256,24 +319,22 @@ impl Parser {
         self.orchard_hasher.init_with_perso(b"ZTxIdOrchardHash");
 
         self.input_count = input_count;
-        self.state = ParseState::WaitInput;
+        self.state = ParserState::WaitInput;
 
         Ok(())
     }
 
-    fn parse_input(&mut self, reader: &mut ByteReader<'_>) -> Result<(), ParseError> {
-        let prevout = OutPoint::read(&mut *reader)
-            .inspect_err(|v| error!("Error reading OutPoint: {:#?}", v))
-            .unwrap();
+    fn parse_input(&mut self, reader: &mut ByteReader<'_>) -> Result<(), ParserError> {
+        let prevout = ok!(OutPoint::read(&mut *reader));
 
-        prevout.write(self.prevouts_hasher.as_writer()).unwrap();
+        ok!(prevout.write(self.prevouts_hasher.as_writer()));
 
-        let script_size: usize = CompactSize::read_t(&mut *reader).unwrap();
+        let script_size: usize = ok!(CompactSize::read_t(&mut *reader));
 
         info!("Previous outpoint: {:?}", prevout);
         info!("Script size: {}", script_size);
 
-        self.state = ParseState::ProcessInputScript {
+        self.state = ParserState::ProcessInputScript {
             size: script_size,
             remaining_size: script_size,
         };
@@ -289,19 +350,16 @@ impl Parser {
         reader: &mut ByteReader<'_>,
         size: usize,
         remaining_size: usize,
-    ) -> Result<(), ParseError> {
+    ) -> Result<(), ParserError> {
         let new_remaining_size = {
             let offset = size - remaining_size;
-            let len = reader
-                .read(&mut self.script_bytes[offset..][..remaining_size])
-                .inspect_err(|v| error!("Error reading script bytes: {:#?}", v))
-                .unwrap();
+            let len = ok!(reader.read(&mut self.script_bytes[offset..][..remaining_size]));
 
             remaining_size.saturating_sub(len)
         };
 
         if new_remaining_size != 0 {
-            self.state = ParseState::ProcessInputScript {
+            self.state = ParserState::ProcessInputScript {
                 size,
                 remaining_size: new_remaining_size,
             };
@@ -317,53 +375,49 @@ impl Parser {
         let mut script_sig = Script::default();
         // NOTE: take/deallocate self.script_bytes here
         script_sig.0 .0 = mem::take(&mut self.script_bytes);
-        script_sig.write(self.scripts_hasher.as_writer()).unwrap();
+        ok!(script_sig.write(self.scripts_hasher.as_writer()));
 
         info!("Script sig: {:?}", script_sig);
 
         let sequence = {
             let mut sequence = [0; 4];
-            reader.read_exact(&mut sequence).unwrap();
+            ok!(reader.read_exact(&mut sequence));
             u32::from_le_bytes(sequence)
         };
         info!("Sequence: {:X?}", sequence);
 
-        self.sequence_hasher
-            .update(&sequence.to_le_bytes())
-            .unwrap();
+        ok!(self.sequence_hasher.update(&sequence.to_le_bytes()));
 
         self.input_parsed_count = self.input_parsed_count.saturating_add(1);
 
         if self.input_count == self.input_parsed_count {
             info!("All inputs parsed");
-            self.state = ParseState::InputHashingDone;
+            self.state = ParserState::InputHashingDone;
         } else {
-            self.state = ParseState::WaitInput;
+            self.state = ParserState::WaitInput;
         }
 
         Ok(())
     }
 
-    fn parse_input_hashing_done(&mut self, reader: &mut ByteReader<'_>) -> Result<(), ParseError> {
+    fn parse_input_hashing_done(&mut self, reader: &mut ByteReader<'_>) -> Result<(), ParserError> {
         info!("Input hashing done");
 
-        let output_count: usize = CompactSize::read_t(&mut *reader).unwrap();
+        let output_count: usize = ok!(CompactSize::read_t(&mut *reader));
         info!("Output count: {}", output_count);
 
         self.output_count = output_count;
-        self.state = ParseState::WaitOutput;
+        self.state = ParserState::WaitOutput;
 
         Ok(())
     }
 
-    fn parse_output(&mut self, reader: &mut ByteReader<'_>) -> Result<(), ParseError> {
-        let value = {
+    fn parse_output(&mut self, reader: &mut ByteReader<'_>) -> Result<(), ParserError> {
+        let value = ok!({
             let mut tmp = [0u8; 8];
-            reader.read_exact(&mut tmp).unwrap();
+            ok!(reader.read_exact(&mut tmp));
             Zatoshis::from_nonnegative_i64_le_bytes(tmp)
-        }
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "value out of range"))
-        .unwrap();
+        });
 
         if self
             .transaction_trusted_input_idx
@@ -374,16 +428,14 @@ impl Parser {
             info!("Found amount for trusted input: {}", self.amount);
         }
 
-        self.outputs_hasher
-            .update(&value.to_i64_le_bytes())
-            .unwrap();
+        ok!(self.outputs_hasher.update(&value.to_i64_le_bytes()));
 
-        let script_size: usize = CompactSize::read_t(&mut *reader).unwrap();
+        let script_size: usize = ok!(CompactSize::read_t(&mut *reader));
 
         info!("Output value: {:?}", value);
         info!("Output script size: {}", script_size);
 
-        self.state = ParseState::ProcessOutputScript {
+        self.state = ParserState::ProcessOutputScript {
             size: script_size,
             remaining_size: script_size,
         };
@@ -398,19 +450,16 @@ impl Parser {
         reader: &mut ByteReader<'_>,
         size: usize,
         remaining_size: usize,
-    ) -> Result<(), ParseError> {
+    ) -> Result<(), ParserError> {
         let new_remaining_size = {
             let offset = size - remaining_size;
-            let len = reader
-                .read(&mut self.script_bytes[offset..][..remaining_size])
-                .inspect_err(|v| error!("Error reading script bytes: {:#?}", v))
-                .unwrap();
+            let len = ok!(reader.read(&mut self.script_bytes[offset..][..remaining_size]));
 
             remaining_size.saturating_sub(len)
         };
 
         if new_remaining_size != 0 {
-            self.state = ParseState::ProcessOutputScript {
+            self.state = ParserState::ProcessOutputScript {
                 size,
                 remaining_size: new_remaining_size,
             };
@@ -426,9 +475,7 @@ impl Parser {
         let mut script_pubkey = Script::default();
         // NOTE: take/deallocate self.script_bytes here
         script_pubkey.0 .0 = mem::take(&mut self.script_bytes);
-        script_pubkey
-            .write(&mut self.outputs_hasher.as_writer())
-            .unwrap();
+        ok!(script_pubkey.write(&mut self.outputs_hasher.as_writer()));
 
         info!("Output script pubkey: {:?}", script_pubkey);
 
@@ -436,78 +483,90 @@ impl Parser {
 
         if self.output_count == self.output_parsed_count {
             info!("All outputs parsed");
-            self.state = ParseState::OutputHashingDone;
+            self.state = ParserState::OutputHashingDone;
         } else {
-            self.state = ParseState::WaitOutput;
+            self.state = ParserState::WaitOutput;
         }
 
         Ok(())
     }
 
-    fn parse_output_hashing_done(&mut self, reader: &mut ByteReader<'_>) -> Result<(), ParseError> {
+    fn parse_output_hashing_done(
+        &mut self,
+        reader: &mut ByteReader<'_>,
+    ) -> Result<(), ParserError> {
         info!("Output hashing done");
 
-        self.sapling_spend_remaining = CompactSize::read_t(&mut *reader).unwrap();
-        self.sapling_output_count = CompactSize::read_t(&mut *reader).unwrap();
-        self.orchard_action_count = CompactSize::read_t(&mut *reader).unwrap();
+        self.sapling_spend_remaining = ok!(CompactSize::read_t(&mut *reader));
+        self.sapling_output_count = ok!(CompactSize::read_t(&mut *reader));
+        self.orchard_action_count = ok!(CompactSize::read_t(&mut *reader));
 
         info!("Sapling spend remaining: {}", self.sapling_spend_remaining);
         info!("Sapling output count: {}", self.sapling_output_count);
         info!("Orchard action count: {}", self.orchard_action_count);
 
-        self.state = ParseState::ProcessExtra;
+        self.state = ParserState::ProcessExtra;
 
         Ok(())
     }
 
-    fn parse_process_extra(&mut self, reader: &mut ByteReader<'_>) -> Result<(), ParseError> {
+    fn parse_process_extra(&mut self, reader: &mut ByteReader<'_>) -> Result<(), ParserError> {
         info!("Processing extra data...");
 
-        self.locktime = reader.read_u32_le().unwrap();
+        self.locktime = ok!(reader.read_u32_le());
 
         info!("Locktime: {:X?}", self.locktime);
 
-        let extra_data_len = reader.read_u8().unwrap();
+        let extra_data_len = ok!(reader.read_u8());
         if let Some(TxVersion::V5) = self.tx_version {
             if extra_data_len != 4 {
                 error!(
                     "Expected extra data length to be 4 for expiry height, got {}",
                     extra_data_len
                 );
-                return Err(ParseError::InvalidFormat);
+                return Err(ParserError::from_str(
+                    "Invalid extra data length for expiry height",
+                ));
             }
         }
 
-        self.expiry_height = reader.read_u32_le().unwrap();
+        self.expiry_height = ok!(reader.read_u32_le());
         info!("Expiry height: {:X?}", self.expiry_height);
 
         self.is_transaction_trusted_input_processed = true;
-        self.state = ParseState::TransactionParsed;
+        self.state = ParserState::TransactionParsed;
 
         self.compute_tx_id()?;
 
         Ok(())
     }
 
-    fn compute_tx_id(&mut self) -> Result<(), ParseError> {
+    fn compute_tx_id(&mut self) -> Result<(), ParserError> {
+        let tx_version = self
+            .tx_version
+            .expect("tx_version should be set at this point");
+        let branch_id = self
+            .branch_id
+            .expect("branch_id should be set at this point");
+
         if self.tx_version == Some(TxVersion::V5) {
             let prevouts_hash = {
                 let mut hash = [0u8; 32];
-                self.prevouts_hasher.finalize(&mut hash).unwrap();
+                ok!(self.prevouts_hasher.finalize(&mut hash));
                 hash
             };
             debug!("Prevouts hash: {}", HexSlice(&prevouts_hash));
 
             let sequence_hash = {
                 let mut hash = [0u8; 32];
-                self.sequence_hasher.finalize(&mut hash).unwrap();
+                ok!(self.sequence_hasher.finalize(&mut hash));
                 hash
             };
             debug!("Sequence hash: {}", HexSlice(&sequence_hash));
 
             let outputs_hash = {
                 let mut hash = [0u8; 32];
-                self.outputs_hasher.finalize(&mut hash).unwrap();
+                ok!(self.outputs_hasher.finalize(&mut hash));
                 hash
             };
             debug!("Outputs hash: {}", HexSlice(&outputs_hash));
@@ -518,17 +577,14 @@ impl Parser {
                 let mut hasher = Blake2b_256::default();
                 hasher.init_with_perso(ZCASH_HEADERS_HASH_PERSONALIZATION);
 
-                self.tx_version
-                    .unwrap()
-                    .write(&mut hasher.as_writer())
-                    .unwrap();
-                hasher
-                    .update(&u32::from(self.branch_id.unwrap()).to_le_bytes())
-                    .unwrap();
-                hasher.update(&self.locktime.to_le_bytes()).unwrap();
-                hasher.update(&self.expiry_height.to_le_bytes()).unwrap();
+                ok!(tx_version.write(&mut hasher.as_writer()));
 
-                hasher.finalize(&mut hash).unwrap();
+                ok!(hasher.update(&u32::from(branch_id).to_le_bytes()));
+
+                ok!(hasher.update(&self.locktime.to_le_bytes()));
+                ok!(hasher.update(&self.expiry_height.to_le_bytes()));
+
+                ok!(hasher.finalize(&mut hash));
                 hash
             };
             debug!("Header hash: {}", HexSlice(&header_hash));
@@ -539,48 +595,49 @@ impl Parser {
                 let mut hasher = Blake2b_256::default();
                 hasher.init_with_perso(ZCASH_TRANSPARENT_HASH_PERSONALIZATION);
 
-                hasher.update(&prevouts_hash).unwrap();
-                hasher.update(&sequence_hash).unwrap();
-                hasher.update(&outputs_hash).unwrap();
+                ok!(hasher.update(&prevouts_hash));
+                ok!(hasher.update(&sequence_hash));
+                ok!(hasher.update(&outputs_hash));
 
-                hasher.finalize(&mut hash).unwrap();
+                ok!(hasher.finalize(&mut hash));
                 hash
             };
             debug!("Transparent hash: {}", HexSlice(&transparent_hash));
 
             let sapling_hash = {
                 let mut hash = [0u8; 32];
-                self.sapling_hasher.finalize(&mut hash).unwrap();
+                ok!(self.sapling_hasher.finalize(&mut hash));
                 hash
             };
             debug!("Sapling hash: {}", HexSlice(&sapling_hash));
 
             let orchard_hash = {
                 let mut hash = [0u8; 32];
-                self.orchard_hasher.finalize(&mut hash).unwrap();
+                ok!(self.orchard_hasher.finalize(&mut hash));
                 hash
             };
             debug!("Orchard hash: {}", HexSlice(&orchard_hash));
 
             let mut personalization = [0u8; 16];
             personalization[..12].copy_from_slice(ZCASH_TX_PERSONALIZATION_PREFIX);
-            personalization[12..]
-                .copy_from_slice(&u32::from(self.branch_id.unwrap()).to_le_bytes());
+            personalization[12..].copy_from_slice(&u32::from(branch_id).to_le_bytes());
 
             let mut hasher = Blake2b_256::default();
             hasher.init_with_perso(&personalization);
 
-            hasher.update(&header_hash).unwrap();
-            hasher.update(&transparent_hash).unwrap();
-            hasher.update(&sapling_hash).unwrap();
-            hasher.update(&orchard_hash).unwrap();
+            ok!(hasher.update(&header_hash));
+            ok!(hasher.update(&transparent_hash));
+            ok!(hasher.update(&sapling_hash));
+            ok!(hasher.update(&orchard_hash));
 
-            hasher.finalize(&mut self.tx_id).unwrap();
+            ok!(hasher.finalize(&mut self.tx_id));
 
             debug!("Transaction ID hash: {}", HexSlice(&self.tx_id));
         } else {
             error!("TX ID computation for versions other than V5 is not implemented");
-            return Err(ParseError::InvalidFormat);
+            return Err(ParserError::from_str(
+                "TX ID computation for versions other than V5 is not implemented",
+            ));
         }
 
         Ok(())
