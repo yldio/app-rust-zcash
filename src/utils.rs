@@ -173,7 +173,6 @@ pub fn public_key_to_address_base58<const MAX_OUT_SIZE: usize>(
     Ok(address_base58)
 }
 
-#[derive(PartialEq)]
 pub enum Endianness {
     Big,
     _Little,
@@ -184,14 +183,15 @@ pub fn read_u32(buffer: &[u8], endianness: Endianness, skip_sign: bool) -> Resul
         return Err(AppSW::IncorrectData);
     }
 
-    let mut word = if endianness == Endianness::Big {
-        u32::from_be_bytes(buffer[..4].try_into().unwrap())
-    } else {
-        u32::from_le_bytes(buffer[..4].try_into().unwrap())
+    let buffer4 = buffer[..4].try_into().expect("cannot fail");
+
+    let mut word = match endianness {
+        Endianness::Big => u32::from_be_bytes(buffer4),
+        Endianness::_Little => u32::from_le_bytes(buffer4),
     };
 
     if skip_sign {
-        word &= 0x7FFFFFFF;
+        word &= 0x7FFF_FFFF;
     }
 
     Ok(word)

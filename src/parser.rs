@@ -20,9 +20,14 @@ use zcash_protocol::value::{BalanceError, Zatoshis};
 use zcash_transparent::address::Script;
 use zcash_transparent::bundle::OutPoint;
 
+use crate::consts::MAX_SCRIPT_SIZE;
 use crate::log::{debug, error, info};
 use crate::utils::blake2b_256_pers::{AsWriter, Blake2b256Personalization};
 use crate::utils::HexSlice;
+
+// TODO: use personalization consts from protocol libraries
+const ZCASH_SAPLING_HASH_PERSONALIZATION: &[u8] = b"ZTxIdSaplingHash";
+const ZCASH_ORCHARD_HASH_PERSONALIZATION: &[u8] = b"ZTxIdOrchardHash";
 
 #[allow(unused)]
 #[derive(Debug)]
@@ -231,7 +236,7 @@ impl Parser {
     }
 
     pub fn is_finished(&self) -> bool {
-        matches!(self.state, ParserState::TransactionParsed)
+        self.state == ParserState::TransactionParsed
     }
 
     pub fn set_transaction_trusted_input_idx(&mut self, idx: u32) {
@@ -315,8 +320,10 @@ impl Parser {
             .init_with_perso(ZCASH_TRANSPARENT_AMOUNTS_HASH_PERSONALIZATION);
         self.scripts_hasher
             .init_with_perso(ZCASH_TRANSPARENT_SCRIPTS_HASH_PERSONALIZATION);
-        self.sapling_hasher.init_with_perso(b"ZTxIdSaplingHash");
-        self.orchard_hasher.init_with_perso(b"ZTxIdOrchardHash");
+        self.sapling_hasher
+            .init_with_perso(ZCASH_SAPLING_HASH_PERSONALIZATION);
+        self.orchard_hasher
+            .init_with_perso(ZCASH_ORCHARD_HASH_PERSONALIZATION);
 
         self.input_count = input_count;
         self.state = ParserState::WaitInput;
@@ -330,6 +337,10 @@ impl Parser {
         ok!(prevout.write(self.prevouts_hasher.as_writer()));
 
         let script_size: usize = ok!(CompactSize::read_t(&mut *reader));
+
+        if script_size > MAX_SCRIPT_SIZE {
+            return Err(ParserError::from_str("Bad input script size"));
+        }
 
         info!("Previous outpoint: {:?}", prevout);
         info!("Script size: {}", script_size);
@@ -370,7 +381,9 @@ impl Parser {
             return Ok(());
         }
 
-        assert_eq!(size, self.script_bytes.len());
+        if size != self.script_bytes.len() {
+            return Err(ParserError::from_str("Bad input script len"));
+        }
 
         let mut script_sig = Script::default();
         // NOTE: take/deallocate self.script_bytes here
@@ -432,6 +445,10 @@ impl Parser {
 
         let script_size: usize = ok!(CompactSize::read_t(&mut *reader));
 
+        if script_size > MAX_SCRIPT_SIZE {
+            return Err(ParserError::from_str("Bad output script size"));
+        }
+
         info!("Output value: {:?}", value);
         info!("Output script size: {}", script_size);
 
@@ -470,7 +487,9 @@ impl Parser {
             return Ok(());
         }
 
-        assert_eq!(size, self.script_bytes.len());
+        if size != self.script_bytes.len() {
+            return Err(ParserError::from_str("Bad output script len"));
+        }
 
         let mut script_pubkey = Script::default();
         // NOTE: take/deallocate self.script_bytes here

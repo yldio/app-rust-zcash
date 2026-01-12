@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub const MAX_SCRIPT_SIZE: usize = 1024 * 2;
+
 pub const ZCASH_CLA: u8 = 0xE0;
 pub const ZCASH_ADM_CLA: u8 = 0xD0;
 pub const ZCASH_NFCPAYMENT_CLA: u8 = 0xF0;

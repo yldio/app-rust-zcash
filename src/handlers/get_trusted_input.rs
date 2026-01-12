@@ -1,6 +1,6 @@
 use crate::{
     handlers::sign_tx::TxContext,
-    log::{self, error},
+    log::{debug, error, info},
     parser::{ParserMode, ParserSourceError},
     settings::Settings,
     utils::{read_u32, Endianness},
@@ -25,14 +25,14 @@ pub fn handler_get_trusted_input(
     let mut data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
 
     if first {
-        log::info!("Init parser");
+        info!("Init parser");
         *ctx = TxContext::new();
 
         let transaction_trusted_input_idx = read_u32(data, Endianness::Big, false)?;
-        log::info!("Trusted input idx: {}", transaction_trusted_input_idx);
-        ctx.set_transaction_trusted_input_idx(transaction_trusted_input_idx);
-
         data = &data[4..];
+
+        ctx.set_transaction_trusted_input_idx(transaction_trusted_input_idx);
+        info!("Trusted input idx: {}", transaction_trusted_input_idx);
     }
 
     ctx.parser
@@ -47,7 +47,7 @@ pub fn handler_get_trusted_input(
 
     if ctx.parser.is_finished() {
         if !ctx.parser.is_transaction_trusted_input_processed() {
-            log::error!("Trusted input index was not processed");
+            error!("Trusted input index was not processed");
             return Err(AppSW::IncorrectData);
         }
 
@@ -59,7 +59,7 @@ pub fn handler_get_trusted_input(
         comm.append(&ctx.parser.tx_id());
         comm.append(
             ctx.transaction_trusted_input_idx()
-                .unwrap()
+                .expect("should be set at init parser state (see above)")
                 .to_le_bytes()
                 .as_ref(),
         );
@@ -72,7 +72,7 @@ pub fn handler_get_trusted_input(
                 .trusted_input_key()
                 .ok_or(AppSW::TechnicalProblem)?,
         );
-        error!("HMAC input: {:02X?}", comm.get(0, TRUSTED_INPUT_SIZE));
+        debug!("HMAC input: {:02X?}", comm.get(0, TRUSTED_INPUT_SIZE));
 
         hmac_sha256_signer
             .update(comm.get(0, TRUSTED_INPUT_SIZE))
