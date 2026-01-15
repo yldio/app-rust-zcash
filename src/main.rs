@@ -39,9 +39,7 @@ mod utils;
 
 use app_ui::menu::ui_menu_main;
 use handlers::{
-    get_public_key::handler_get_public_key,
-    get_version::handler_get_version,
-    sign_tx::{handler_sign_tx, TxContext},
+    get_public_key::handler_get_public_key, get_version::handler_get_version, sign_tx::TxContext,
 };
 use ledger_device_sdk::{
     io::{ApduHeader, Comm, Reply},
@@ -59,20 +57,26 @@ use ledger_device_sdk::nbgl::{NbglReviewStatus, StatusType};
 use crate::{
     consts::{
         INS_GET_FIRMWARE_VERSION, INS_GET_TRUSTED_INPUT, INS_GET_WALLET_PUBLIC_KEY,
-        INS_HASH_INPUT_FINALIZE, INS_HASH_INPUT_FINALIZE_FULL, INS_HASH_INPUT_START, INS_HASH_SIGN,
-        INS_SIGN_MESSAGE, ZCASH_CLA,
+        INS_HASH_INPUT_FINALIZE_FULL, INS_HASH_INPUT_START, INS_HASH_SIGN, INS_SIGN_MESSAGE,
+        P2_SEGWIT_SAPLING, ZCASH_CLA,
     },
-    handlers::{get_trusted_input::handler_get_trusted_input, sign_msg::handler_sign_msg},
+    handlers::{
+        get_trusted_input::handler_get_trusted_input,
+        sign_msg::handler_sign_msg,
+        sign_tx::{handler_hash_input_finalize_full, handler_hash_input_start, handler_hash_sign},
+    },
     log::{debug, error},
+    parser::ParserMode,
     settings::Settings,
 };
 
 pub const P1_FIRST: u8 = 0x00;
 pub const P1_NEXT: u8 = 0x80;
+pub const FINALIZE_P1_CHANGEINFO: u8 = 0xFF;
 
 // Application status words.
 #[repr(u16)]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppSW {
     PinRemainingAttempts = 0x63C0,
     WrongApduLength = 0x6700,
@@ -103,6 +107,7 @@ pub enum AppSW {
     Licensing = 0x6F42,
     Halted = 0x6FAA,
     Deny = 0x6985,
+    ConditionsOfUseNotSatisfied = 0x6986, // 0x6985
     //TxWrongLength = 0x6F00,
     TechnicalProblem = 0x6F00,
     VersionParsingFail = 0x6F01,
@@ -116,34 +121,15 @@ impl From<AppSW> for Reply {
     }
 }
 
-#[repr(u8)]
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum SignHashFlag {
-    Start = INS_HASH_INPUT_START,
-    Finalize = INS_HASH_INPUT_FINALIZE,
-    Sign = INS_HASH_SIGN,
-    FinalizeFull = INS_HASH_INPUT_FINALIZE_FULL,
-}
-
 /// Possible input commands received through APDUs.
 pub enum Instruction {
     GetVersion,
-    GetPubkey {
-        display: bool,
-    },
-    GetTrustedInput {
-        first: bool,
-        next: bool,
-    },
-    SignTx {
-        flag: SignHashFlag,
-        first: bool,
-        next: bool,
-    },
-    SignMessage {
-        first: bool,
-        next: bool,
-    },
+    GetPubkey { display: bool },
+    GetTrustedInput { first: bool, next: bool },
+    HashInputStart { first: bool, reset_parser: bool },
+    HashFinalizeFull { is_change: bool },
+    HashSign,
+    SignMessage { first: bool, next: bool },
 }
 
 impl TryFrom<ApduHeader> for Instruction {
@@ -171,26 +157,19 @@ impl TryFrom<ApduHeader> for Instruction {
                 next: p1 == P1_NEXT,
             }),
             (
-                INS_HASH_INPUT_START
-                | INS_HASH_INPUT_FINALIZE
-                | INS_HASH_SIGN
-                | INS_HASH_INPUT_FINALIZE_FULL,
+                INS_HASH_INPUT_START,
                 p1,
-                0,
-            ) => {
-                let state = match value.ins {
-                    INS_HASH_INPUT_START => SignHashFlag::Start,
-                    INS_HASH_INPUT_FINALIZE => SignHashFlag::Finalize,
-                    INS_HASH_SIGN => SignHashFlag::Sign,
-                    INS_HASH_INPUT_FINALIZE_FULL => SignHashFlag::FinalizeFull,
-                    _ => unreachable!(),
-                };
-                Ok(Instruction::SignTx {
-                    flag: state,
-                    first: p1 == P1_FIRST,
-                    next: p1 == P1_NEXT,
+                p2 @ (P2_SEGWIT_SAPLING | 0x80), // Only support Sapling (or next)
+            ) => Ok(Instruction::HashInputStart {
+                first: p1 == P1_FIRST && p2 == P2_SEGWIT_SAPLING,
+                reset_parser: p1 == P1_FIRST,
+            }),
+            (INS_HASH_INPUT_FINALIZE_FULL, 0x80 | FINALIZE_P1_CHANGEINFO, 0) => {
+                Ok(Instruction::HashFinalizeFull {
+                    is_change: value.p1 == FINALIZE_P1_CHANGEINFO,
                 })
             }
+            (INS_HASH_SIGN, 0, 0) => Ok(Instruction::HashSign),
             (INS_SIGN_MESSAGE, p1, 0) => Ok(Instruction::SignMessage {
                 first: p1 == P1_FIRST,
                 next: p1 == P1_NEXT,
@@ -210,7 +189,9 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
         (Instruction::GetPubkey { display: true }, AppSW::Deny | AppSW::Ok) => {
             (true, StatusType::Address)
         }
-        (Instruction::SignTx { .. }, AppSW::Deny | AppSW::Ok) if tx_ctx.finished() => {
+        (Instruction::HashInputStart { .. }, AppSW::Deny | AppSW::Ok)
+            if tx_ctx.review_finished() =>
+        {
             (true, StatusType::Transaction)
         }
         (_, _) => (false, StatusType::Transaction),
@@ -249,7 +230,9 @@ extern "C" fn sample_main() {
 
     debug!("App started");
 
-    let mut tx_ctx = TxContext::new();
+    let mut tx_ctx = TxContext::new(Default::default());
+
+    debug!("TxContext size {} bytes", core::mem::size_of_val(&tx_ctx));
 
     tx_ctx.home = ui_menu_main(&mut comm);
     tx_ctx.home.show_and_return();
@@ -278,15 +261,19 @@ fn handle_apdu(comm: &mut Comm, ins: &Instruction, ctx: &mut TxContext) -> Resul
         Instruction::GetTrustedInput { first, next } => {
             handler_get_trusted_input(comm, ctx, *first, *next)
         }
-        Instruction::SignTx { flag, first, next } => {
-            handler_sign_tx(comm, ctx, *flag, *first, *next)
+        Instruction::HashInputStart {
+            first,
+            reset_parser,
+        } => handler_hash_input_start(comm, ctx, *first, *reset_parser),
+        Instruction::HashFinalizeFull { is_change } => {
+            handler_hash_input_finalize_full(comm, ctx, *is_change)
         }
+        Instruction::HashSign => handler_hash_sign(comm, ctx),
         Instruction::SignMessage { first, next } => handler_sign_msg(comm, ctx, *first, *next),
     }
 }
 
 /// In case of runtime problems, return an internal error and exit the app
-#[inline]
 pub fn panic_handler(info: &PanicInfo) -> ! {
     error!("Panicking: {:?}\n", info);
     ledger_device_sdk::exiting_panic(info)

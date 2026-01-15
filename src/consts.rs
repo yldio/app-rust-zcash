@@ -32,6 +32,9 @@ pub const INS_COMPOSE_MOFN_ADDRESS: u8 = 0xC6;
 pub const INS_GET_POS_SEED: u8 = 0xCA;
 pub const INS_DEBUG: u8 = 0xD0;
 
+pub const P2_SEGWIT_OVERWINTER: u8 = 0x04;
+pub const P2_SEGWIT_SAPLING: u8 = 0x05;
+
 pub const SW_PIN_REMAINING_ATTEMPTS: u16 = 0x63C0;
 pub const SW_INCORRECT_LENGTH: u16 = 0x6700;
 pub const SW_COMMAND_INCOMPATIBLE_FILE_STRUCTURE: u16 = 0x6981;
@@ -64,3 +67,6 @@ pub const SW_GP_AUTH_FAILED: u16 = 0x6300;
 pub const SW_LICENSING: u16 = 0x6F42;
 pub const SW_HALTED: u16 = 0x6FAA;
 pub const SW_APP_HALTED: u16 = 0x6985;
+
+pub const TRUSTED_INPUT_SIZE: usize = 2 + 2 + 32 + 4 + 8; // magic + rand + txid + idx + amount
+pub const TRUSTED_INPUT_TOTAL_SIZE: usize = TRUSTED_INPUT_SIZE + 8;

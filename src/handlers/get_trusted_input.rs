@@ -1,7 +1,8 @@
 use crate::{
+    consts::TRUSTED_INPUT_SIZE,
     handlers::sign_tx::TxContext,
     log::{debug, error, info},
-    parser::{ParserMode, ParserSourceError},
+    parser::{ParserCtx, ParserMode, ParserSourceError},
     settings::Settings,
     utils::{read_u32, Endianness},
     AppSW,
@@ -13,7 +14,6 @@ use ledger_device_sdk::{
 };
 
 const MAGIC_TRUSTED_INPUT: u8 = 0x32;
-const TRUSTED_INPUT_SIZE: usize = 2 + 2 + 32 + 4 + 8; // magic + rand + txid + idx + amount
 
 pub fn handler_get_trusted_input(
     comm: &mut Comm,
@@ -21,12 +21,11 @@ pub fn handler_get_trusted_input(
     first: bool,
     _next: bool,
 ) -> Result<(), AppSW> {
-    // Try to get data from comm
     let mut data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
 
     if first {
-        info!("Init parser");
-        *ctx = TxContext::new();
+        info!("Init TX context");
+        *ctx = TxContext::new(ParserMode::TrustedInput);
 
         let transaction_trusted_input_idx = read_u32(data, Endianness::Big, false)?;
         data = &data[4..];
@@ -36,7 +35,15 @@ pub fn handler_get_trusted_input(
     }
 
     ctx.parser
-        .parse_chunk(data, ParserMode::TrustedInput)
+        .parse_chunk(
+            &mut ParserCtx {
+                tx_state: &mut ctx.tx_signing_state,
+                tx_info: &mut ctx.tx_info,
+                trusted_input_info: &mut ctx.trusted_input_info,
+                hashers: &mut ctx.hashers,
+            },
+            data,
+        )
         .map_err(|e| {
             error!("Error parsing trusted input: {:#?}", e);
             match e.source {
@@ -46,7 +53,7 @@ pub fn handler_get_trusted_input(
         })?;
 
     if ctx.parser.is_finished() {
-        if !ctx.parser.is_transaction_trusted_input_processed() {
+        if !ctx.trusted_input_info.is_input_processed {
             error!("Trusted input index was not processed");
             return Err(AppSW::IncorrectData);
         }
@@ -56,14 +63,15 @@ pub fn handler_get_trusted_input(
 
         comm.append(&[MAGIC_TRUSTED_INPUT, 0x00]);
         comm.append(&rng[2..]);
-        comm.append(&ctx.parser.tx_id());
+        comm.append(&ctx.trusted_input_info.tx_id);
         comm.append(
-            ctx.transaction_trusted_input_idx()
+            ctx.trusted_input_info
+                .input_idx
                 .expect("should be set at init parser state (see above)")
                 .to_le_bytes()
                 .as_ref(),
         );
-        comm.append(ctx.parser.amount().to_le_bytes().as_ref());
+        comm.append(ctx.trusted_input_info.amount.to_le_bytes().as_ref());
 
         // Compute HMAC-SHA256 signature over the trusted input
         let mut signature = [0u8; 8];
