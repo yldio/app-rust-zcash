@@ -20,6 +20,7 @@ use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceErr
 use crate::utils::blake2b_256_pers::Blake2b256Personalization;
 use crate::utils::{Bip32Path, HexSlice};
 use crate::AppSW;
+use ledger_device_sdk::ecc::{Secp256k1, SeedDerive as _};
 use ledger_device_sdk::hash::blake2::Blake2b_256;
 use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::io::Comm;
@@ -77,7 +78,6 @@ pub struct TxSigningState {
 }
 
 pub struct TxContext {
-    path: Bip32Path,
     review_finished: bool,
     summary: TransactionSummary,
 
@@ -97,7 +97,6 @@ pub struct TxContext {
 impl TxContext {
     pub fn new(parser_mode: ParserMode) -> TxContext {
         TxContext {
-            path: Default::default(),
             review_finished: false,
             summary: Default::default(),
 
@@ -324,12 +323,24 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
     let _sighash_type: u8 = data[4];
 
     // Finalize hash
-    sign_tx(&mut ctx.hashers.tx_full_hasher)?;
+    compute_signature_and_append(
+        comm,
+        &mut ctx.hashers.tx_full_hasher,
+        &path,
+        ctx.tx_info.sighash_type,
+        true,
+    )?;
 
     Ok(())
 }
 
-fn sign_tx(tx_full_hasher: &mut Blake2b_256) -> Result<(), AppSW> {
+fn compute_signature_and_append(
+    comm: &mut Comm,
+    tx_full_hasher: &mut Blake2b_256,
+    path: &Bip32Path,
+    sighash_type: u8,
+    deterministic_sign: bool,
+) -> Result<(), AppSW> {
     let mut hash = [0u8; 32];
     tx_full_hasher
         .finalize(&mut hash)
@@ -337,8 +348,24 @@ fn sign_tx(tx_full_hasher: &mut Blake2b_256) -> Result<(), AppSW> {
 
     debug!("Final TX hash: {}", HexSlice(&hash));
 
-    // Sign tx hash
-    // TODO:
+    let (p, _chain_code) = Secp256k1::derive_from(path.as_ref());
+
+    let (mut sig, sig_len, info) = if deterministic_sign {
+        p.deterministic_sign(&hash)
+    } else {
+        p.sign(&hash)
+    }
+    .map_err(|_| AppSW::TechnicalProblem)?;
+
+    // Store information about the parity of the 'y' coordinate
+    if info != 0 {
+        sig[0] |= 0x01;
+    }
+
+    debug!("Signature: {}", HexSlice(&sig[..sig_len as usize]));
+
+    comm.append(&sig[..sig_len as usize]);
+    comm.append(&[0x01]);
 
     Ok(())
 }
