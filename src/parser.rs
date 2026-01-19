@@ -621,6 +621,41 @@ impl Parser {
                 return Ok(());
             }
 
+            if self.mode == ParserMode::Signature && !ctx.tx_state.segwit_parsed_once {
+                ok!(ctx
+                    .hashers
+                    .prevouts_hasher
+                    .finalize(&mut ctx.tx_info.prevouts_hash));
+                info!("prevout hash {}", HexSlice(&ctx.tx_info.prevouts_hash));
+
+                ok!(ctx
+                    .hashers
+                    .sequence_hasher
+                    .finalize(&mut ctx.tx_info.sequence_hash));
+                info!("sequence hash {}", HexSlice(&ctx.tx_info.sequence_hash));
+
+                ok!(ctx
+                    .hashers
+                    .amounts_hasher
+                    .finalize(&mut ctx.tx_info.amounts_hash));
+                info!("amounts hash {}", HexSlice(&ctx.tx_info.amounts_hash));
+
+                ok!(ctx
+                    .hashers
+                    .scripts_hasher
+                    .finalize(&mut ctx.tx_info.scripts_hash));
+                info!("scripts hash {}", HexSlice(&ctx.tx_info.scripts_hash));
+
+                self.state = ParserState::TransactionPresignReady;
+
+                // FIXME: HMMM??? 4 zero bytes remaining
+                reader._remaining_debug();
+
+                return Ok(());
+            }
+
+            info!("Input hashing done");
+
             self.state = ParserState::InputHashingDone;
         } else {
             self.state = ParserState::WaitInput;
@@ -634,41 +669,6 @@ impl Parser {
         ctx: &mut ParserCtx<'_>,
         reader: &mut ByteReader<'_>,
     ) -> Result<(), ParserError> {
-        info!("Input hashing done");
-
-        if self.mode == ParserMode::Signature && !ctx.tx_state.segwit_parsed_once {
-            ok!(ctx
-                .hashers
-                .prevouts_hasher
-                .finalize(&mut ctx.tx_info.prevouts_hash));
-            info!("prevout hash {}", HexSlice(&ctx.tx_info.prevouts_hash));
-
-            ok!(ctx
-                .hashers
-                .sequence_hasher
-                .finalize(&mut ctx.tx_info.sequence_hash));
-            info!("sequence hash {}", HexSlice(&ctx.tx_info.sequence_hash));
-
-            ok!(ctx
-                .hashers
-                .amounts_hasher
-                .finalize(&mut ctx.tx_info.amounts_hash));
-            info!("amounts hash {}", HexSlice(&ctx.tx_info.amounts_hash));
-
-            ok!(ctx
-                .hashers
-                .scripts_hasher
-                .finalize(&mut ctx.tx_info.scripts_hash));
-            info!("scripts hash {}", HexSlice(&ctx.tx_info.scripts_hash));
-
-            self.state = ParserState::TransactionPresignReady;
-
-            // FIXME: HMMM??? 4 zero bytes remaining
-            reader._remaining_debug();
-
-            return Ok(());
-        }
-
         let output_count: usize = ok!(CompactSize::read_t(&mut *reader));
         info!("Output count: {}", output_count);
 
@@ -967,6 +967,10 @@ impl OutputParser {
 
     pub fn is_finished(&self) -> bool {
         self.state == OutputParseState::OutputProcessingDone
+    }
+
+    pub fn is_started(&self) -> bool {
+        self.state != OutputParseState::ParsingNumberOfOutputs
     }
 
     pub fn parse(&mut self, data: &[u8]) -> Result<(), ParserError> {

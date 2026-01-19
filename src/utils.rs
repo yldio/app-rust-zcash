@@ -136,14 +136,16 @@ pub fn compress_public_key(public_key: &[u8]) -> Result<[u8; 33], AppSW> {
     Ok(compressed_pk)
 }
 
+// T-address P2PKH prefix (mainnet)
+const P2PKH_PREFIX: [u8; 2] = [0x1C, 0xB8];
+// T-address P2PKH prefix (testnet)
+const _P2PKH_PREFIX: [u8; 2] = [0x1D, 0x25];
+
+pub struct PubKey(pub [u8; 20]);
+
 pub fn public_key_to_address_base58<const MAX_OUT_SIZE: usize>(
     public_key: &[u8],
 ) -> Result<ArrayString<MAX_OUT_SIZE>, AppSW> {
-    // T-address P2PKH prefix (mainnet)
-    const P2PKH_PREFIX: [u8; 2] = [0x1C, 0xB8];
-    // T-address P2PKH prefix (testnet)
-    const _P2PKH_PREFIX: [u8; 2] = [0x1D, 0x25];
-
     let mut buf = [0u8; 26];
 
     // For Zcash, the address is the HASH160 of the public key
@@ -419,6 +421,57 @@ pub fn check_output_displayable(
                 return false;
             }
         }
+    }
+
+    true
+}
+
+pub fn check_bip44_compliance(path: &Bip32Path, is_change_path: bool) -> bool {
+    const BIP44_PATH_LEN: usize = 5;
+    const BIP44_PURPOSE_OFFSET: usize = 0;
+    const BIP44_COIN_TYPE_OFFSET: usize = 1;
+    const BIP44_ACCOUNT_OFFSET: usize = 2;
+    const BIP44_CHANGE_OFFSET: usize = 3;
+    const BIP44_ADDRESS_INDEX_OFFSET: usize = 4;
+    const BIP44_COIN_TYPE: u32 = 133;
+    const MAX_BIP44_ACCOUNT_RECOMMENDED: u32 = 100;
+    const MAX_BIP44_ADDRESS_INDEX_RECOMMENDED: u32 = 50000;
+
+    let path = path.as_ref();
+
+    if path.len() != BIP44_PATH_LEN {
+        error!("Bad Bip44 path len");
+        return false;
+    }
+
+    let purpose = path[BIP44_PURPOSE_OFFSET] & 0x7FFF_FFFF;
+    if purpose != 44 && purpose != 49 && purpose != 84 {
+        error!("Bad Bip44 purpose");
+        return false;
+    }
+
+    let coin_type = path[BIP44_COIN_TYPE_OFFSET] & 0x7FFF_FFFF;
+    if coin_type != BIP44_COIN_TYPE {
+        error!("Bad Bip44 coin type");
+        return false;
+    }
+
+    let account = path[BIP44_ACCOUNT_OFFSET] & 0x7FFF_FFFF;
+    if account > MAX_BIP44_ACCOUNT_RECOMMENDED {
+        error!("Bad Bip44 account");
+        return false;
+    }
+
+    let change = path[BIP44_CHANGE_OFFSET];
+    if change != if is_change_path { 1 } else { 0 } {
+        error!("Bad Bip44 change");
+        return false;
+    }
+
+    let address_index = path[BIP44_ADDRESS_INDEX_OFFSET] & 0x7FFF_FFFF;
+    if address_index > MAX_BIP44_ADDRESS_INDEX_RECOMMENDED {
+        error!("Bad Bip44 address index");
+        return false;
     }
 
     true

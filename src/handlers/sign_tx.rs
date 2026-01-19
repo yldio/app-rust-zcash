@@ -18,7 +18,10 @@ use crate::app_ui::sign::ui_display_tx_output;
 use crate::log::{debug, error, info};
 use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
 use crate::utils::blake2b_256_pers::Blake2b256Personalization;
-use crate::utils::{Bip32Path, HexSlice};
+use crate::utils::{
+    check_bip44_compliance, compress_public_key, derive_public_key, public_key_hash160,
+    public_key_to_address_base58, Bip32Path, HexSlice, PubKeyWithCC,
+};
 use crate::AppSW;
 use ledger_device_sdk::ecc::{Secp256k1, SeedDerive as _};
 use ledger_device_sdk::hash::blake2::Blake2b_256;
@@ -53,6 +56,9 @@ pub struct TxInfo {
     pub sighash_type: u8,
     pub expiry_height: u32,
     pub total_amount: u64,
+
+    pub is_change_found: bool,
+    pub change_address: [u8; 20],
 
     pub prevouts_hash: [u8; 32],
     pub sequence_hash: [u8; 32],
@@ -180,31 +186,35 @@ struct TransactionSummary {
 pub fn handler_hash_input_finalize_full(
     comm: &mut Comm,
     ctx: &mut TxContext,
-    is_change_flag: bool,
+    is_change: bool,
 ) -> Result<(), AppSW> {
-    handler_hash_input_finalize_full_internal(comm, ctx, is_change_flag)
+    handler_hash_input_finalize_full_internal(comm, ctx, is_change)
 }
 
 fn handler_hash_input_finalize_full_internal(
     comm: &mut Comm,
     ctx: &mut TxContext,
-    is_change_flag: bool,
+    is_change: bool,
 ) -> Result<(), AppSW> {
-    let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
+    let mut data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
 
     if data.is_empty() {
         return Err(AppSW::WrongApduLength);
     }
 
-    let frist_byte = data[0];
     let mut hash_offset = 0;
 
-    if frist_byte < 0xfd {
-        hash_offset = 1;
-    } else if frist_byte == 0xfd {
-        hash_offset = 3;
-    } else if frist_byte == 0xfe {
-        hash_offset = 5;
+    // Skip number of outputs on parsing start
+    if !ctx.output_parser.is_started() {
+        let frist_byte = data[0];
+
+        if frist_byte < 0xfd {
+            hash_offset = 1;
+        } else if frist_byte == 0xfd {
+            hash_offset = 3;
+        } else if frist_byte == 0xfe {
+            hash_offset = 5;
+        }
     }
 
     // Check parser state
@@ -213,9 +223,35 @@ fn handler_hash_input_finalize_full_internal(
         return Err(AppSW::ConditionsOfUseNotSatisfied);
     }
 
-    // NOTE: probably should be stored in ctx
-    // OR EVEN BETTER MOVE TO PARSER !!!
-    let mut hasher_full = Blake2b_256::default();
+    if is_change {
+        if ctx.is_all_outputs_validated {
+            // Already validated, should be prevented on the client side
+            error!("All outputs already validated");
+            return Err(AppSW::ConditionsOfUseNotSatisfied);
+        }
+
+        let path: Bip32Path = data.try_into()?;
+
+        let PubKeyWithCC {
+            public_key,
+            public_key_len,
+            chain_code,
+        } = derive_public_key(&path)?;
+        let public_key = &public_key[..public_key_len];
+        let comp_public_key = compress_public_key(public_key)?;
+
+        ctx.tx_info.change_address = public_key_hash160(&comp_public_key)?;
+        ctx.tx_info.is_change_found = true;
+
+        info!("Change addr: {}", HexSlice(&ctx.tx_info.change_address));
+
+        if !check_bip44_compliance(&path, true) {
+            error!("Change address path not Bip44 compliant");
+            return Err(AppSW::ConditionsOfUseNotSatisfied);
+        }
+
+        return Ok(());
+    }
 
     if !ctx.tx_signing_state.segwit_parsed_once {
         if data.len() < hash_offset {
@@ -223,8 +259,17 @@ fn handler_hash_input_finalize_full_internal(
             return Err(AppSW::WrongApduLength);
         }
 
-        hasher_full.init_with_perso(ZCASH_OUTPUTS_HASH_PERSONALIZATION);
-        hasher_full
+        // FIMXE: move to output parser
+        if !ctx.output_parser.is_started() {
+            info!("output hasher reset");
+            ctx.hashers
+                .outputs_hasher
+                .init_with_perso(ZCASH_OUTPUTS_HASH_PERSONALIZATION);
+        }
+
+        info!("output hasher update {}", HexSlice(&data[hash_offset..]));
+        ctx.hashers
+            .outputs_hasher
             .update(&data[hash_offset..])
             .map_err(|_| AppSW::TechnicalProblem)?;
     }
@@ -238,7 +283,7 @@ fn handler_hash_input_finalize_full_internal(
             //    ctx.output_parser.current_output_value,
             //    "XXXXXXXXXXXXXXXX",
             //    424242, // TODO fees
-            //    is_change_flag,
+            //    is_change,
             //)? {
             //    return Err(AppSW::Deny);
             //}
@@ -250,8 +295,9 @@ fn handler_hash_input_finalize_full_internal(
         }
     }
 
-    if !ctx.tx_signing_state.segwit_parsed_once {
-        hasher_full
+    if !ctx.tx_signing_state.segwit_parsed_once && ctx.output_parser.is_finished() {
+        ctx.hashers
+            .outputs_hasher
             .finalize(&mut ctx.tx_info.outputs_hash)
             .map_err(|_| AppSW::TechnicalProblem)?;
         info!("Outputs hash: {}", HexSlice(&ctx.tx_info.outputs_hash));
@@ -304,13 +350,18 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
     let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
 
     if data.is_empty() {
-        error!("Not enough data for sign hash");
+        error!("Not enough data for sighash type");
         return Err(AppSW::WrongApduLength);
     }
 
     let path_len = data[0] as usize * 4 + 1; // Path segment 4 bytes + 1 byte length
     let path_data = &data[..path_len];
     let path: Bip32Path = path_data.try_into()?;
+
+    if !check_bip44_compliance(&path, false) {
+        error!("Output address path not Bip44 compliant");
+        return Err(AppSW::ConditionsOfUseNotSatisfied);
+    }
 
     let data = &data[path_len..];
 
@@ -365,7 +416,7 @@ fn compute_signature_and_append(
     debug!("Signature: {}", HexSlice(&sig[..sig_len as usize]));
 
     comm.append(&sig[..sig_len as usize]);
-    comm.append(&[0x01]);
+    comm.append(&[sighash_type]);
 
     Ok(())
 }

@@ -164,7 +164,7 @@ impl TryFrom<ApduHeader> for Instruction {
                 first: p1 == P1_FIRST && p2 == P2_SEGWIT_SAPLING,
                 reset_parser: p1 == P1_FIRST,
             }),
-            (INS_HASH_INPUT_FINALIZE_FULL, 0x80 | FINALIZE_P1_CHANGEINFO, 0) => {
+            (INS_HASH_INPUT_FINALIZE_FULL, 0x00 | 0x80 | FINALIZE_P1_CHANGEINFO, 0) => {
                 Ok(Instruction::HashFinalizeFull {
                     is_change: value.p1 == FINALIZE_P1_CHANGEINFO,
                 })
