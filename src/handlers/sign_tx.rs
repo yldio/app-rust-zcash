@@ -146,7 +146,7 @@ pub fn handler_sign_tx(
                     // The swap validation failed and returned us the common format error defined by the SDK
                     // Use SDK method to append error code and message in standard format
                     error.append_to_comm(comm);
-                    return Err(AppSW::SwapFail);
+                    Err(AppSW::SwapFail)
                 } else {
                     debug_print("Swap validation success, bypassing UI\n");
                     compute_signature_and_append(comm, ctx)

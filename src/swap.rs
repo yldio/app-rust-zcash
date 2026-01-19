@@ -59,7 +59,7 @@ use ledger_device_sdk::{
 
 use crate::handlers::sign_tx::Tx;
 use crate::utils::get_address_hash_from_pubkey;
-use alloc::format;
+use alloc::{format, string::ToString};
 
 /// Application-specific swap error codes.
 ///
@@ -179,7 +179,7 @@ pub fn check_swap_params(
             SwapError::with_message(
                 SwapErrorCommonCode::ErrorWrongDestination,
                 SwapAppErrorCode::DestinationDecodeFail,
-                format!("Failed to read destination hex"),
+                "Failed to read destination hex".to_string(),
             )
         })?;
     let dest_hex = dest_str.strip_prefix("0x").unwrap_or(dest_str);
@@ -199,8 +199,8 @@ pub fn check_swap_params(
         debug_hex("Tx: ", &tx.to);
         debug_hex("Swap: ", &swap_dest);
         // Only build hex strings for error message (not on happy path)
-        let tx_hex = hex::encode(&tx.to);
-        let swap_hex = hex::encode(&swap_dest);
+        let tx_hex = hex::encode(tx.to);
+        let swap_hex = hex::encode(swap_dest);
         return Err(SwapError::with_message(
             SwapErrorCommonCode::ErrorWrongDestination,
             SwapAppErrorCode::Default,
@@ -216,7 +216,7 @@ pub fn check_swap_params(
 /// Helper function to print u64 for debugging.
 pub fn debug_u64(label: &str, val: u64) {
     let mut buf = ArrayString::<64>::new();
-    let _ = write!(&mut buf, "{}{}\n", label, val);
+    let _ = writeln!(&mut buf, "{}{}", label, val);
     debug_print(buf.as_str());
 }
 
@@ -228,7 +228,7 @@ pub fn debug_hex(label: &str, data: &[u8]) {
     for b in data {
         let _ = write!(&mut buf, "{:02x}", b);
     }
-    let _ = write!(&mut buf, "\n");
+    let _ = writeln!(&mut buf);
     debug_print(buf.as_str());
 }
 
