@@ -64,6 +64,11 @@ class ZcashCommandSender:
         res = self.backend.exchange_raw(data)
         return res.status, res.data
 
+    @contextmanager
+    def exchange_async_raw(self, data: str) -> Generator[None, None, None]:
+        data = bytes.fromhex(data)
+        with self.backend.exchange_async_raw(data):
+            yield
 
     def get_app_and_version(self) -> RAPDU:
         return self.backend.exchange(cla=0xB0,  # specific CLA for BOLOS
