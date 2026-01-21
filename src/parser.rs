@@ -378,6 +378,7 @@ impl Parser {
                 .init_with_perso(ZCASH_ORCHARD_HASH_PERSONALIZATION);
         }
 
+        ctx.tx_info.total_amount = 0;
         self.input_count = input_count;
         self.state = ParserState::WaitInput;
 
@@ -442,7 +443,7 @@ impl Parser {
             return Err(ParserError::from_str("Not enough data for trusted input"));
         }
 
-        let mut trusted_input = &reader.remaining_slice()[..trusted_input_len];
+        let trusted_input = &reader.remaining_slice()[..trusted_input_len];
         let trusted_input_hmac = &trusted_input[trusted_input_len - 8..][..8];
         let mut computed_hmac = [0x00u8; 8];
 
@@ -501,7 +502,6 @@ impl Parser {
             reader.read_exact(&mut _hmac)
         });
 
-        // TODO: Extract common code?
         let script_size: usize = ok!(CompactSize::read_t(&mut *reader));
         info!("Script size: {}", script_size);
 
@@ -689,7 +689,7 @@ impl Parser {
 
     fn parse_input_hashing_done(
         &mut self,
-        ctx: &mut ParserCtx<'_>,
+        _ctx: &mut ParserCtx<'_>,
         reader: &mut ByteReader<'_>,
     ) -> Result<(), ParserError> {
         let output_count: usize = ok!(CompactSize::read_t(&mut *reader));
@@ -959,7 +959,7 @@ impl Parser {
 
 pub struct OutputParserCtx<'ctx> {
     pub tx_info: &'ctx mut TxInfo,
-    pub hashers: &'ctx mut Hashers,
+    pub _hashers: &'ctx mut Hashers,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1075,7 +1075,7 @@ impl OutputParser {
                     match check_output_displayable(
                         &self.current_output_script,
                         self.current_output_amount,
-                        &ctx.tx_info.change_address,
+                        &ctx.tx_info.change_pk_hash,
                     ) {
                         output @ (CheckDispOutput::Change | CheckDispOutput::Displayable) => {
                             let is_change = output == CheckDispOutput::Change;

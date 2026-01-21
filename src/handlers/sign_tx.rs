@@ -18,8 +18,8 @@ use crate::log::{debug, error, info};
 use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
 use crate::utils::blake2b_256_pers::Blake2b256Personalization;
 use crate::utils::{
-    check_bip44_compliance, compress_public_key, derive_public_key, get_address_from_output_script,
-    public_key_hash160, public_key_to_address_base58, Bip32Path, HexSlice, PubKeyWithCC,
+    check_bip44_compliance, compress_public_key, derive_public_key, public_key_hash160, Bip32Path,
+    HexSlice, PubKeyWithCC,
 };
 use crate::AppSW;
 use alloc::string::String;
@@ -67,7 +67,7 @@ pub struct TxInfo {
 
     pub outputs: Vec<TxOutput>,
     pub is_change_found: bool,
-    pub change_address: [u8; 20],
+    pub change_pk_hash: [u8; 20],
 
     pub prevouts_hash: [u8; 32],
     pub sequence_hash: [u8; 32],
@@ -94,7 +94,6 @@ pub struct TxSigningState {
 
 pub struct TxContext {
     review_finished: bool,
-    summary: TransactionSummary,
 
     pub is_all_outputs_validated: bool,
     pub is_ready_to_sign: bool,
@@ -113,7 +112,6 @@ impl TxContext {
     pub fn new(parser_mode: ParserMode) -> TxContext {
         TxContext {
             review_finished: false,
-            summary: Default::default(),
 
             tx_info: Default::default(),
             trusted_input_info: Default::default(),
@@ -136,24 +134,20 @@ impl TxContext {
     pub fn review_finished(&self) -> bool {
         self.review_finished
     }
-
-    pub fn reset(&mut self, _mode: ParserMode) {
-        todo!()
-    }
 }
 
 pub fn handler_hash_input_start(
     comm: &mut Comm,
     ctx: &mut TxContext,
     first: bool,
-    reset_parser: bool,
+    continue_hashing: bool,
 ) -> Result<(), AppSW> {
-    if first {
-        info!("Init TX context");
-        *ctx = TxContext::new(ParserMode::Signature);
-    } else if reset_parser {
+    if continue_hashing {
         info!("Reset parser");
         ctx.parser = Parser::new(ParserMode::Signature);
+    } else if first {
+        info!("Init TX context");
+        *ctx = TxContext::new(ParserMode::Signature);
     }
 
     // Try to get data from comm
@@ -180,24 +174,12 @@ pub fn handler_hash_input_start(
     Ok(())
 }
 
-#[derive(Default)]
-struct TransactionSummary {
-    active: u8,
-    pay_to_address_version: u8,
-    pay_to_script_hash_version: u8,
-    authorization_hash: [u8; 32],
-    //key_path: [u8; 41], // MAX_BIP32_PATH_LENGTH
-    transaction_nonce: [u8; 8],
-    message_length: u16,
-    sighash_type: u8,
-}
-
 pub fn handler_hash_input_finalize_full(
     comm: &mut Comm,
     ctx: &mut TxContext,
     is_change: bool,
 ) -> Result<(), AppSW> {
-    let mut data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
+    let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
 
     if data.is_empty() {
         return Err(AppSW::WrongApduLength);
@@ -205,6 +187,7 @@ pub fn handler_hash_input_finalize_full(
 
     let mut hash_offset = 0;
 
+    // TODO: FIXME: move to output parser
     // Skip number of outputs on parsing start
     if !ctx.output_parser.is_started() {
         let frist_byte = data[0];
@@ -236,15 +219,14 @@ pub fn handler_hash_input_finalize_full(
         let PubKeyWithCC {
             public_key,
             public_key_len,
-            chain_code,
+            ..
         } = derive_public_key(&path)?;
         let public_key = &public_key[..public_key_len];
         let comp_public_key = compress_public_key(public_key)?;
 
-        ctx.tx_info.change_address = public_key_hash160(&comp_public_key)?;
-        ctx.tx_info.is_change_found = true;
+        ctx.tx_info.change_pk_hash = public_key_hash160(&comp_public_key)?;
 
-        info!("Change addr: {}", HexSlice(&ctx.tx_info.change_address));
+        info!("Change pk hash: {}", HexSlice(&ctx.tx_info.change_pk_hash));
 
         if !check_bip44_compliance(&path, true) {
             error!("Change address path not Bip44 compliant");
@@ -278,7 +260,7 @@ pub fn handler_hash_input_finalize_full(
             .parse(
                 &mut crate::parser::OutputParserCtx {
                     tx_info: &mut ctx.tx_info,
-                    hashers: &mut ctx.hashers,
+                    _hashers: &mut ctx.hashers,
                 },
                 data,
             )
@@ -333,11 +315,13 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
         // Skip unused bytes
         let data = &data[2..];
 
-        // Extract additional TX data
+        // Extract extra TX data
+        // TODO: FIXME: double check endianness of locktime and expiry height
         let locktime: u32 = u32::from_be_bytes(data[..4].try_into().unwrap());
         let sighash_type: u8 = data[4];
         let expiry_height: u32 = u32::from_be_bytes(data[5..9].try_into().unwrap());
 
+        info!("Extra TX data received:");
         info!("locktime: {}", locktime);
         info!("sighash_type: {}", sighash_type);
         info!("expiry_height: {}", expiry_height);
@@ -351,10 +335,10 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
         return Ok(());
     }
 
-    let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
+    // TODO: add more state checks before signing
 
     if data.is_empty() {
-        error!("Not enough data for sighash type");
+        error!("Not enough data for derivation path length");
         return Err(AppSW::WrongApduLength);
     }
 
@@ -367,6 +351,7 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
         return Err(AppSW::ConditionsOfUseNotSatisfied);
     }
 
+    // TODO: skip parsing of not used data?
     let data = &data[path_len..];
 
     // Skip not used auth length

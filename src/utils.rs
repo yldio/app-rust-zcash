@@ -3,7 +3,7 @@ use arrayvec::ArrayString;
 use bs58::encode::EncodeTarget;
 
 use crate::{
-    log::{debug, error, info},
+    log::{debug, error},
     AppSW,
 };
 

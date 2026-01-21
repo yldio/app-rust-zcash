@@ -35,6 +35,7 @@ pub const INS_DEBUG: u8 = 0xD0;
 
 pub const P2_SEGWIT_OVERWINTER: u8 = 0x04;
 pub const P2_SEGWIT_SAPLING: u8 = 0x05;
+pub const P2_CONTINUE_HASHING: u8 = 0x80;
 
 pub const SW_PIN_REMAINING_ATTEMPTS: u16 = 0x63C0;
 pub const SW_INCORRECT_LENGTH: u16 = 0x6700;

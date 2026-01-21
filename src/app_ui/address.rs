@@ -15,10 +15,9 @@
  *  limitations under the License.
  *****************************************************************************/
 
-use crate::{app_ui::load_glyph, AppSW};
+use ledger_device_sdk::nbgl::NbglAddressReview;
 
-use include_gif::include_gif;
-use ledger_device_sdk::nbgl::{NbglAddressReview, NbglGlyph};
+use crate::{app_ui::load_glyph, AppSW};
 
 pub fn ui_display_pk(addr: &str) -> Result<bool, AppSW> {
     // Display the address confirmation screen.

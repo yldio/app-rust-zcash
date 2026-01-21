@@ -15,11 +15,10 @@
  *  limitations under the License.
  *****************************************************************************/
 
-use include_gif::include_gif;
 use ledger_device_sdk::io::Comm;
 
 use crate::{app_ui::load_ui_menu_glyph, settings::Settings};
-use ledger_device_sdk::nbgl::{NbglGlyph, NbglHomeAndSettings};
+use ledger_device_sdk::nbgl::NbglHomeAndSettings;
 
 pub fn ui_menu_main(_: &mut Comm) -> NbglHomeAndSettings {
     let settings_strings = [["Display Memo", "Allow display of transaction memo."]];

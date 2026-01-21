@@ -49,13 +49,13 @@ ledger_device_sdk::set_panic!(panic_handler);
 // Required for using String, Vec, format!...
 extern crate alloc;
 
-use ledger_device_sdk::nbgl::{NbglReviewStatus, StatusType};
+use ledger_device_sdk::nbgl::StatusType;
 
 use crate::{
     consts::{
         INS_GET_FIRMWARE_VERSION, INS_GET_TRUSTED_INPUT, INS_GET_WALLET_PUBLIC_KEY,
         INS_HASH_INPUT_FINALIZE_FULL, INS_HASH_INPUT_START, INS_HASH_SIGN, INS_SIGN_MESSAGE,
-        P2_SEGWIT_SAPLING, ZCASH_CLA,
+        P2_CONTINUE_HASHING, P2_SEGWIT_SAPLING, ZCASH_CLA,
     },
     handlers::{
         get_trusted_input::handler_get_trusted_input,
@@ -63,7 +63,6 @@ use crate::{
         sign_tx::{handler_hash_input_finalize_full, handler_hash_input_start, handler_hash_sign},
     },
     log::{debug, error},
-    parser::ParserMode,
     settings::Settings,
 };
 
@@ -123,7 +122,7 @@ pub enum Instruction {
     GetVersion,
     GetPubkey { display: bool },
     GetTrustedInput { first: bool, next: bool },
-    HashInputStart { first: bool, reset_parser: bool },
+    HashInputStart { first: bool, continue_hashing: bool },
     HashFinalizeFull { is_change: bool },
     HashSign,
     SignMessage { first: bool, next: bool },
@@ -156,10 +155,10 @@ impl TryFrom<ApduHeader> for Instruction {
             (
                 INS_HASH_INPUT_START,
                 p1,
-                p2 @ (P2_SEGWIT_SAPLING | 0x80), // Only support Sapling (or next)
+                p2 @ (P2_SEGWIT_SAPLING | P2_CONTINUE_HASHING), // Only support Sapling
             ) => Ok(Instruction::HashInputStart {
-                first: p1 == P1_FIRST && p2 == P2_SEGWIT_SAPLING,
-                reset_parser: p1 == P1_FIRST,
+                first: p1 == P1_FIRST,
+                continue_hashing: p1 == P1_FIRST && p2 == P2_CONTINUE_HASHING,
             }),
             (INS_HASH_INPUT_FINALIZE_FULL, 0x00 | 0x80 | FINALIZE_P1_CHANGEINFO, 0) => {
                 Ok(Instruction::HashFinalizeFull {
@@ -182,7 +181,7 @@ impl TryFrom<ApduHeader> for Instruction {
 }
 
 fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, status: &AppSW) {
-    let (show_status, status_type) = match (ins, status) {
+    let (show_status, _status_type) = match (ins, status) {
         (Instruction::GetPubkey { display: true }, AppSW::Deny | AppSW::Ok) => {
             (true, StatusType::Address)
         }
@@ -195,10 +194,15 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
     };
 
     if show_status {
-        let success = *status == AppSW::Ok;
-        NbglReviewStatus::new()
-            .status_type(status_type)
-            .show(success);
+        #[cfg(not(any(target_os = "nanox", target_os = "nanosplus")))]
+        {
+            use ledger_device_sdk::nbgl::NbglReviewStatus;
+
+            let success = *status == AppSW::Ok;
+            NbglReviewStatus::new()
+                .status_type(_status_type)
+                .show(success);
+        }
 
         // call home.show_and_return() to show home and setting screen
         tx_ctx.home.show_and_return();
@@ -260,8 +264,8 @@ fn handle_apdu(comm: &mut Comm, ins: &Instruction, ctx: &mut TxContext) -> Resul
         }
         Instruction::HashInputStart {
             first,
-            reset_parser,
-        } => handler_hash_input_start(comm, ctx, *first, *reset_parser),
+            continue_hashing,
+        } => handler_hash_input_start(comm, ctx, *first, *continue_hashing),
         Instruction::HashFinalizeFull { is_change } => {
             handler_hash_input_finalize_full(comm, ctx, *is_change)
         }
