@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import Any, Generator, List, Optional, Tuple
+from typing import Generator, List, Optional, Tuple
 from contextlib import contextmanager
 from struct import pack
 
@@ -211,7 +211,7 @@ class ZcashCommandSender:
         self._send_trusted_inputs_and_header(continue_hashing=False)
 
         # Send outputs chunks
-        outputs = self.tx_chunks["outputs"] # type: ignore
+        outputs: dict = self.tx_chunks["outputs"] # type: ignore
         outputs_num = len(outputs)
         outputs_num_bytes = outputs_num.to_bytes(1)
 
