@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import Generator, List, Optional
+from typing import Generator, List, Optional, Tuple
 from contextlib import contextmanager
 from struct import pack
 
@@ -63,18 +63,18 @@ def split_message(message: bytes, max_size: int) -> List[bytes]:
 class ZcashCommandSender:
     def __init__(self, backend: BackendInterface) -> None:
         self.backend = backend
-        self.tx_chunks = None
-        self.trusted_inputs = []
+        self.tx_chunks: Optional[dict] = None
+        self.trusted_inputs: list[bytes] = []
 
-    def exchange_raw(self, data: str) -> (int, bytes):
-        data = bytes.fromhex(data)
-        res = self.backend.exchange_raw(data)
+    def exchange_raw(self, data: str) -> Tuple[int, bytes]:
+        data_bytes = bytes.fromhex(data)
+        res = self.backend.exchange_raw(data_bytes)
         return res.status, res.data
 
     @contextmanager
     def exchange_async_raw(self, data: str) -> Generator[None, None, None]:
-        data = bytes.fromhex(data)
-        with self.backend.exchange_async_raw(data):
+        data_bytes = bytes.fromhex(data)
+        with self.backend.exchange_async_raw(data_bytes):
             yield
 
     def get_app_and_version(self) -> RAPDU:
