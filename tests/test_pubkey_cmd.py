@@ -9,7 +9,7 @@ from application_client.zcash_utils import t_address_from_pubkey
 
 # In this test we check that the GET_PUBLIC_KEY works in non-confirmation mode
 def test_get_public_key_no_confirm(backend):
-    for path in ["m/44'/1'/0'/0/0", "m/44'/1'/0/0/0", "m/44'/1'/911'/0/0", "m/44'/1'/255/255/255", "m/44'/1'/2147483647/0/0/0/0/0/0/0"]:
+    for path in ["m/44'/133'/0'/0/0", "m/44'/133'/0/0/0", "m/44'/133'/911'/0/0", "m/44'/133'/255/255/255", "m/44'/133'/2147483647/0/0/0/0/0/0/0"]:
         client = ZcashCommandSender(backend)
         response = client.get_public_key(path=path).data
         public_key, address, chain_code = unpack_get_public_key_response(response)
