@@ -32,12 +32,14 @@ mod consts;
 mod log;
 mod parser;
 mod settings;
+mod swap;
 mod utils;
 
 use app_ui::menu::ui_menu_main;
 use handlers::{
     get_public_key::handler_get_public_key, get_version::handler_get_version, sign_tx::TxContext,
 };
+use ledger_device_sdk::{io::StatusWords, libcall::swap::CreateTxParams};
 use ledger_device_sdk::{
     io::{ApduHeader, Comm, Reply},
     nbgl::init_comm,
@@ -56,14 +58,11 @@ use crate::{
         INS_GET_FIRMWARE_VERSION, INS_GET_TRUSTED_INPUT, INS_GET_WALLET_PUBLIC_KEY,
         INS_HASH_INPUT_FINALIZE_FULL, INS_HASH_INPUT_START, INS_HASH_SIGN, INS_SIGN_MESSAGE,
         P2_CONTINUE_HASHING, P2_OPERATION_TYPE_SAPLING, ZCASH_CLA,
-    },
-    handlers::{
+    }, handlers::{
         get_trusted_input::handler_get_trusted_input,
         sign_msg::handler_sign_msg,
         sign_tx::{handler_hash_input_finalize_full, handler_hash_input_start, handler_hash_sign},
-    },
-    log::{debug, error},
-    settings::Settings,
+    }, log::{debug, error}, parser::ParserMode, settings::Settings
 };
 
 pub const P1_FIRST: u8 = 0x00;
@@ -75,7 +74,6 @@ pub const FINALIZE_P1_CHANGEINFO: u8 = 0xFF;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppSW {
     PinRemainingAttempts = 0x63C0,
-    WrongApduLength = 0x6700,
     CommandIncompatibleFileStructure = 0x6981,
     SecurityStatusNotSatisfied = 0x6982,
     IncorrectData = 0x6A80,
@@ -106,8 +104,16 @@ pub enum AppSW {
     ConditionsOfUseNotSatisfied = 0x6986, // 0x6985
     //TxWrongLength = 0x6F00,
     TechnicalProblem = 0x6F00,
-    VersionParsingFail = 0x6F01,
-    TxParsingFail = 0x6F02,
+    TxDisplayFail = 0xB001,
+    AddrDisplayFail = 0xB002,
+    TxWrongLength = 0xB004,
+    TxParsingFail = 0xB005,
+    TxHashFail = 0xB006,
+    TxSignFail = 0xB008,
+    KeyDeriveFail = 0xB009,
+    VersionParsingFail = 0xB00A,
+    WrongApduLength = StatusWords::BadLen as u16,
+    SwapFail = 0xC000,
     Ok = 0x9000,
 }
 
@@ -118,6 +124,7 @@ impl From<AppSW> for Reply {
 }
 
 /// Possible input commands received through APDUs.
+#[derive(Debug)]
 pub enum Instruction {
     GetVersion,
     GetPubkey { display: bool },
@@ -181,12 +188,15 @@ impl TryFrom<ApduHeader> for Instruction {
 }
 
 fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, status: &AppSW) {
-    let (show_status, _status_type) = match (ins, status) {
+    if tx_ctx.swap_params.is_some() {
+        return;
+    }
+    let (show_status, status_type) = match (ins, status) {
         (Instruction::GetPubkey { display: true }, AppSW::Deny | AppSW::Ok) => {
             (true, StatusType::Address)
         }
         (Instruction::HashFinalizeFull { .. }, AppSW::Deny | AppSW::Ok)
-            if tx_ctx.review_finished() =>
+            if tx_ctx.finished() =>
         {
             (true, StatusType::Transaction)
         }
@@ -200,7 +210,7 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
 
             let success = *status == AppSW::Ok;
             NbglReviewStatus::new()
-                .status_type(_status_type)
+                .status_type(status_type)
                 .show(success);
         }
 
@@ -219,8 +229,32 @@ fn try_init_trusted_input_key_storage() {
     }
 }
 
+// --8<-- [start:sample_main]
 #[no_mangle]
-extern "C" fn sample_main() {
+extern "C" fn sample_main(arg0: u32) {
+    if arg0 != 0 {
+        // We have been started by the Exchange application through the os_lib_call API
+        // We need to answer the command instead of starting the normal app main loop
+        swap::swap_main(arg0);
+    } else {
+        // Normal app mode, start the main loop listening for APDU commands
+        normal_main(None);
+    }
+}
+// --8<-- [end:sample_main]
+
+/// Main application entry point.
+///
+/// Handles both standard execution (user opens app) and library mode execution
+/// (Exchange app calls this app for swap).
+///
+/// # Arguments
+///
+/// * `swap_params` - Optional swap parameters. If present, the app runs in "swap mode":
+///   - UI is bypassed (no main menu, no transaction review)
+///   - Transaction is validated against swap params
+///   - Returns `true` if signed successfully, `false` otherwise
+pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
     // Create the communication manager, and configure it to accept only APDU from the 0xe0 class.
     // If any APDU with a wrong class value is received, comm will respond automatically with
     // BadCla status word.
@@ -231,15 +265,25 @@ extern "C" fn sample_main() {
 
     debug!("App started");
 
-    let mut tx_ctx = TxContext::new(Default::default());
+
+    let mut tx_ctx = if let Some(params) = swap_params {
+        TxContext::new_with_swap(params,ParserMode::Signature) // NOTE: not sure in mode
+    } else {
+        TxContext::new(ParserMode::Signature) // NOTE: not sure in mode
+    };
 
     debug!("TxContext size {} bytes", core::mem::size_of_val(&tx_ctx));
 
-    tx_ctx.home = ui_menu_main(&mut comm);
-    tx_ctx.home.show_and_return();
+    if swap_params.is_none() {
+        tx_ctx.home = ui_menu_main(&mut comm);
+        tx_ctx.home.show_and_return();
+    }
 
     loop {
         let ins: Instruction = comm.next_command();
+
+        debug!("Received apdu {:?}", ins);
+
 
         let _status = match handle_apdu(&mut comm, &ins, &mut tx_ctx) {
             Ok(()) => {
@@ -252,6 +296,11 @@ extern "C" fn sample_main() {
             }
         };
         show_status_and_home_if_needed(&ins, &mut tx_ctx, &_status);
+
+        // In swap mode, exit after transaction is finished (signed or rejected)
+        if tx_ctx.swap_params.is_some() && tx_ctx.finished() {
+            return _status == AppSW::Ok;
+        }
     }
 }
 

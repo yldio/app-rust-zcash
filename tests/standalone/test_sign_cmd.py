@@ -1,7 +1,12 @@
 from application_client.zcash_command_sender import ZcashCommandSender
 from application_client.zcash_response_unpacker import unpack_get_public_key_response
-from utils import check_signature_validity
 
+from application_client.zcash_transaction import Transaction
+from application_client.zcash_command_sender import ZcashCommandSender, Errors
+from application_client.zcash_response_unpacker import unpack_get_public_key_response, unpack_sign_tx_response
+from application_client.utils import check_signature_validity
+from ragger.error import ExceptionRAPDU
+from ragger.navigator import NavIns, NavInsID
 
 def test_sign_tx_v5_simple(backend, scenario_navigator):
     LOCKTIME = 0x00
@@ -23,6 +28,22 @@ def test_sign_tx_v5_simple(backend, scenario_navigator):
     path = "m/44'/133'/0'/0/2"
 
     trusted_input_idx = 0
+    # Create the transaction that will be sent to the device for signing
+    transaction = Transaction(
+        nonce=1,
+        coin="CRAB",
+        value=777,
+        to="de0b295669a9fd93d5f28d9ec85e40f4cb697bae",
+        memo="For u EthDev"
+    ).serialize()
+
+    # Enable display of transaction memo (NBGL devices only)
+    if not device.is_nano:
+        navigator.navigate([NavInsID.USE_CASE_HOME_SETTINGS,
+                            NavIns(NavInsID.TOUCH, (200, 113)),
+                            NavInsID.USE_CASE_SUB_SETTINGS_EXIT],
+                            screen_change_before_first_instruction=False,
+                            screen_change_after_last_instruction=False)
 
     client = ZcashCommandSender(backend)
 
@@ -42,6 +63,23 @@ def test_sign_tx_v5_simple(backend, scenario_navigator):
     # Finalize and sign
     resp = client.hash_sign(path=path, locktime=LOCKTIME, expiry=EXPIRY, sighash_type=SIGHASH_TYPE).data
     signature = resp[:-1]
+    # The device as yielded the result, parse it and ensure that the signature is correct
+    response = client.get_async_response().data
+    _, der_sig, _ = unpack_sign_tx_response(response)
+    assert check_signature_validity(public_key, der_sig, transaction)
+
+# In this test a transaction is sent to the device to be signed and validated on screen.
+# The transaction is short and will be sent in one chunk
+# We will ensure that the displayed information is correct by using screenshots comparison
+# The transaction memo should not be displayed as we have not enabled it in the app settings.
+def test_sign_tx_short_tx_no_memo(backend, scenario_navigator, device):
+    if device.is_nano:
+        pytest.skip("Skipping this test for Nano devices")
+
+    # Use the app interface instead of raw interface
+    client = ZcashCommandSender(backend)
+    # The path used for this entire test
+    path: str = "m/44'/1'/0'/0/0"
 
     assert check_signature_validity(
         public_key,
@@ -100,6 +138,11 @@ def test_sign_tx_v5_change(backend, scenario_navigator):
         input_index=0,
         input_amounts=[81630485]
     )
+    # The device as yielded the result, parse it and ensure that the signature is correct
+    response = client.get_async_response().data
+    _, der_sig, _ = unpack_sign_tx_response(response)
+
+    assert check_signature_validity(public_key, der_sig, transaction)
 
 
 def test_sign_tx_v5_old(backend, scenario_navigator):
@@ -129,6 +172,24 @@ def test_sign_tx_v5_old(backend, scenario_navigator):
     assert sw == 0x9000
     sw, _ = transport.exchange_raw("e042800003000000")
     assert sw == 0x9000
+    transaction = Transaction(
+        nonce=1,
+        coin="CRAB",
+        value=666,
+        to="de0b295669a9fd93d5f28d9ec85e40f4cb697bae",
+        memo=("This is a very long memo. "
+              "It will force the app client to send the serialized transaction to be sent in chunk. "
+              "As the maximum chunk size is 255 bytes we will make this memo greater than 255 characters. "
+              "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed non risus. Suspendisse lectus tortor, dignissim sit amet, adipiscing nec, ultricies sed, dolor. Cras elementum ultrices diam.")
+    ).serialize()
+
+    # Enable display of transaction memo (NBGL devices only)
+    if not device.is_nano:
+        navigator.navigate([NavInsID.USE_CASE_HOME_SETTINGS,
+                            NavIns(NavInsID.TOUCH, (200, 113)),
+                            NavInsID.USE_CASE_SUB_SETTINGS_EXIT],
+                            screen_change_before_first_instruction=False,
+                            screen_change_after_last_instruction=False)
 
     sw, txid = transport.exchange_raw("e0428000090000000004f9081a00")
     txid = txid.hex()
@@ -396,3 +457,10 @@ def test_sign_tx_v5_mult_outputs_old(backend, scenario_navigator):
     assert sw == 0x9000
 
     assert sig.hex() == SIG
+    with pytest.raises(ExceptionRAPDU) as e:
+        with client.sign_tx(path=path, transaction=transaction):
+            scenario_navigator.review_reject()
+
+    # Assert that we have received a refusal
+    assert e.value.status == Errors.SW_DENY
+    assert len(e.value.data) == 0

@@ -1,14 +1,16 @@
 use alloc::{string::String, vec::Vec};
 
-use crate::{
-    log::{debug, error},
-    AppSW,
-};
+use crate::log::{debug, error};
 
 pub mod blake2b_256_pers;
+use crate::AppSW;
+use ledger_device_sdk::hash::{sha3::Keccak256, HashInit};
 
-/// BIP32 path stored as an array of [`u32`].
-#[derive(Default)]
+/// BIP32 derivation path stored as a vector of u32 components.
+///
+/// Each component represents one level in the path (e.g., m/44'/1'/0'/0/0 has 5 components).
+/// Hardened derivation is indicated by setting the high bit (>= 0x80000000).
+#[derive(Default, Debug)]
 pub struct Bip32Path(Vec<u32>);
 
 impl AsRef<[u32]> for Bip32Path {
@@ -20,15 +22,25 @@ impl AsRef<[u32]> for Bip32Path {
 impl TryFrom<&[u8]> for Bip32Path {
     type Error = AppSW;
 
-    /// Constructs a [`Bip32Path`] from a given byte array.
+    /// Constructs a [`Bip32Path`] from APDU-encoded bytes.
     ///
-    /// This method will return an error in the following cases:
-    /// - the input array is empty,
-    /// - the number of bytes in the input array is not a multiple of 4,
+    /// # Format
     ///
-    /// # Arguments
+    /// - First byte: Number of path components (e.g., 5 for m/44'/1'/0'/0/0)
+    /// - Remaining bytes: Big-endian u32 components (4 bytes each)
     ///
-    /// * `data` - Encoded BIP32 path. First byte is the length of the path, as encoded by ragger.
+    /// # Example
+    ///
+    /// For path m/44'/1'/0'/0/0:
+    /// ```text
+    /// [0x05, 0x8000002C, 0x80000001, 0x80000000, 0x00000000, 0x00000000]
+    /// ```
+    ///
+    /// # Note
+    ///
+    /// This uses `Vec` for dynamic allocation, which is fine for normal APDU handlers
+    /// but CANNOT be used in swap's `check_address` or `get_printable_amount` due to
+    /// BSS memory sharing with the Exchange app.
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
         // Check data length
         if data.is_empty() // At least the length byte is required
@@ -54,11 +66,15 @@ pub struct PubKeyWithCC {
 
 pub fn derive_public_key(path: &Bip32Path) -> Result<PubKeyWithCC, AppSW> {
     use ledger_device_sdk::ecc::{Secp256k1, SeedDerive};
+    debug!("p1 path {:?}", path.as_ref());
 
-    let (k, cc) = Secp256k1::derive_from(path.as_ref());
+    let (k, cc) = Secp256k1::derive_from(path.);
+        debug!("p2");
     let pk = k.public_key().map_err(|_| AppSW::IncorrectData)?;
+        debug!("p3");
 
     let code = cc.ok_or(AppSW::IncorrectData)?;
+        debug!("p4");
     Ok(PubKeyWithCC {
         public_key: pk.pubkey,
         public_key_len: pk.keylength,
@@ -383,4 +399,33 @@ pub fn check_bip44_compliance(path: &Bip32Path, is_change_path: bool) -> bool {
     }
 
     true
+}
+
+
+/// Compute Keccak256 hash of a public key for address derivation.
+///
+/// This is used for Ethereum-style address computation:
+/// 1. Take uncompressed pubkey (65 bytes)
+/// 2. Skip first byte (0x04 marker)
+/// 3. Hash the remaining 64 bytes with Keccak256
+/// 4. Take last 20 bytes as address
+///
+/// # Used by
+///
+/// - `handler_get_public_key`: For displaying address to user
+/// - `swap::check_address`: For verifying address ownership
+///
+/// # Arguments
+///
+/// * `pubkey` - 65-byte uncompressed secp256k1 public key
+///
+/// # Returns
+///
+/// 32-byte Keccak256 hash (last 20 bytes are the Ethereum address)
+pub fn get_address_hash_from_pubkey(pubkey: &[u8; 65]) -> [u8; 32] {
+    let mut keccak256 = Keccak256::new();
+    let mut address: [u8; 32] = [0u8; 32];
+    // Hash pubkey excluding first byte (0x04 uncompressed marker)
+    let _ = keccak256.hash(&pubkey[1..], &mut address);
+    address
 }

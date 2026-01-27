@@ -10,7 +10,7 @@ app_flex.json
 glyphs/home_nano_nbgl.png
 
 # Temporary directory with snapshots taken during test runs
-tests/snapshots-tmp/
+snapshots-tmp/
 
 # Python
 *.pyc[cod]
@@ -27,3 +27,10 @@ ledger/
 # Build directory
 build/
 target-rust-analyzer/
+
+# Helper script git clone
+tests/swap/.test_dependencies/app-exchange/
+tests/swap/.test_dependencies/app-ethereum/
+
+# VSCode
+/.vscode

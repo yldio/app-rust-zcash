@@ -27,10 +27,16 @@ use ledger_device_sdk::ecc::{Secp256k1, SeedDerive as _};
 use ledger_device_sdk::hash::blake2::Blake2b_256;
 use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::io::Comm;
+
 use ledger_device_sdk::nbgl::NbglHomeAndSettings;
+use ledger_device_sdk::libcall::swap::CreateTxParams;
+use serde::Deserialize;
+
+
 
 use zcash_primitives::transaction::TxVersion;
 use zcash_protocol::consensus::BranchId;
+
 
 #[derive(Default)]
 pub struct Hashers {
@@ -90,7 +96,24 @@ pub struct TxSigningState {
     pub is_tx_parsed_once: bool,
 }
 
-pub struct TxContext {
+
+#[derive(Deserialize)]
+pub struct Tx<'a> {
+    #[allow(dead_code)]
+    nonce: u64,
+    #[allow(unused)]
+    pub coin: &'a str,
+    pub value: u64,
+    #[serde(with = "hex::serde")] // Allows JSON deserialization from hex string
+    pub to: [u8; 20],
+    #[allow(unused)]
+    pub memo: &'a str,
+}
+
+/// Transaction context holding state between APDU chunks.
+pub struct TxContext<'a> {
+    raw_tx: Vec<u8>,
+    path: Bip32Path,
     review_finished: bool,
 
     pub is_extra_header_data_set: bool,
@@ -103,11 +126,18 @@ pub struct TxContext {
     pub home: NbglHomeAndSettings,
     pub parser: Parser,
     pub output_parser: OutputParser,
+    /// Swap parameters if running in swap mode.
+    /// Used to validate the transaction against the Exchange's request.
+    pub swap_params: Option<&'a CreateTxParams>,
 }
 
-impl TxContext {
-    pub fn new(parser_mode: ParserMode) -> TxContext {
+// Implement constructor for TxInfo with default values
+impl<'a> TxContext<'a> {
+    // Constructor
+    pub fn new(parser_mode: ParserMode) -> TxContext<'a> {
         TxContext {
+            raw_tx: Vec::new(),
+            path: Default::default(),
             review_finished: false,
 
             tx_info: Default::default(),
@@ -120,6 +150,7 @@ impl TxContext {
             home: Default::default(),
             parser: Parser::new(parser_mode),
             output_parser: OutputParser::new(),
+            swap_params: None,
         }
     }
 
@@ -127,10 +158,39 @@ impl TxContext {
         self.trusted_input_info.input_idx = idx.into();
     }
 
-    pub fn review_finished(&self) -> bool {
+    // Get review status
+    #[allow(dead_code)]
+    pub fn finished(&self) -> bool { 
         self.review_finished
     }
+    // Implement reset for TxInfo
+    #[allow(unused)]
+    fn reset(&mut self) {
+        self.raw_tx.clear();
+        self.path = Default::default();
+        self.review_finished = false;
+    }
+
+    pub fn new_with_swap(params: &'a CreateTxParams,parser_mode: ParserMode) -> TxContext<'a> {
+        TxContext {
+            raw_tx: Vec::new(),
+            path: Default::default(),
+            review_finished: false,
+            home: Default::default(),
+            swap_params: Some(params),
+            is_extra_header_data_set: false,
+            tx_signing_state: Default::default(),
+            tx_info: Default::default(),
+            trusted_input_info:Default::default(),
+            hashers:Default::default(),
+            parser: Parser::new(parser_mode),
+            output_parser:OutputParser::new(),
+        }
+    }
+
+
 }
+
 
 pub fn handler_hash_input_start(
     comm: &mut Comm,
@@ -358,3 +418,5 @@ fn compute_signature_and_append(
 
     Ok(())
 }
+
+
