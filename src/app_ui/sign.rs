@@ -14,67 +14,73 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *****************************************************************************/
-use crate::handlers::sign_tx::Tx;
-use crate::AppSW;
+use crate::{app_ui::load_glyph, consts::ZEC_DECIMALS_DIV, AppSW};
 
-use crate::settings::Settings;
-use include_gif::include_gif;
-use ledger_device_sdk::nbgl::{Field, NbglGlyph, NbglReview};
+use alloc::{format, string::String, vec::Vec};
 
-use alloc::format;
+use crate::handlers::sign_tx::TxOutput;
+use ledger_device_sdk::nbgl::{Field, NbglReview};
 
-/// Displays a transaction and returns true if user approved it.
-///
-/// This method can return [`AppSW::TxDisplayFail`] error if the coin name length is too long.
-///
-/// # Arguments
-///
-/// * `tx` - Transaction to be displayed for validation
-pub fn ui_display_tx(tx: &Tx) -> Result<bool, AppSW> {
-    let value_str = format!("{} {}", tx.coin, tx.value);
-    let to_str = format!("0x{}", hex::encode(tx.to).to_uppercase());
+fn format_zec_amount(amount: u64) -> String {
+    // ZEC has 8 decimal places
+    let whole = amount / ZEC_DECIMALS_DIV;
+    let fractional = amount % ZEC_DECIMALS_DIV;
+    format!("ZEC {}.{:08}", whole, fractional)
+}
+
+/// Display transaction outputs and fees for user confirmation.
+pub fn ui_display_tx(outputs: &[TxOutput], fees: u64) -> Result<bool, AppSW> {
+    let fees_str = format_zec_amount(fees);
+
+    // Build name and value strings
+    let mut name_strs = Vec::new();
+    let mut value_strs = Vec::new();
+
+    // Only display non-change outputs
+    for (idx, output) in outputs
+        .iter()
+        .filter(|output| !output.is_change)
+        .enumerate()
+    {
+        // Make it 1-based for display
+        let idx = idx + 1;
+        name_strs.push((
+            format!("Output #{idx} amount"),
+            format!("Output #{idx} address"),
+        ));
+
+        value_strs.push(format_zec_amount(output.amount));
+    }
 
     // Define transaction review fields
-    let my_fields = [
-        Field {
-            name: "Amount",
-            value: value_str.as_str(),
-        },
-        Field {
-            name: "Destination",
-            value: to_str.as_str(),
-        },
-        Field {
-            name: "Memo",
-            value: tx.memo,
-        },
-    ];
+    let mut my_fields = Vec::new();
 
-    // Create transaction review
+    // Only display non-change outputs
+    for (idx, output) in outputs
+        .iter()
+        .filter(|output| !output.is_change)
+        .enumerate()
+    {
+        my_fields.push(Field {
+            name: name_strs[idx].0.as_str(),
+            value: value_strs[idx].as_str(),
+        });
+        my_fields.push(Field {
+            name: name_strs[idx].1.as_str(),
+            value: &output.address,
+        });
+    }
 
-    // Load glyph from file with include_gif macro. Creates an NBGL compatible glyph.
-    #[cfg(target_os = "apex_p")]
-    const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("glyphs/crab_48x48.png", NBGL));
-    #[cfg(any(target_os = "stax", target_os = "flex"))]
-    const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("glyphs/crab_64x64.gif", NBGL));
-    #[cfg(any(target_os = "nanosplus", target_os = "nanox"))]
-    const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("icons/crab_14x14.gif", NBGL));
+    my_fields.push(Field {
+        name: "Fees",
+        value: fees_str.as_str(),
+    });
 
-    // Create NBGL review. Maximum number of fields and string buffer length can be customised
+    // Create NBGL review. Maximum number of fields and string buffer length can be customized
     // with constant generic parameters of NbglReview. Default values are 32 and 1024 respectively.
     let review: NbglReview = NbglReview::new()
-        .titles(
-            "Review transaction\nto send CRAB",
-            "",
-            "Sign transaction\nto send CRAB",
-        )
-        .glyph(&FERRIS);
+        .titles("Review transaction", "", "Sign transaction")
+        .glyph(load_glyph());
 
-    // If first setting switch is disabled do not display the transaction memo
-    let settings: Settings = Default::default();
-    if settings.get_element(0) == 0 {
-        Ok(review.show(&my_fields[0..2]))
-    } else {
-        Ok(review.show(&my_fields))
-    }
+    Ok(review.show(&my_fields))
 }

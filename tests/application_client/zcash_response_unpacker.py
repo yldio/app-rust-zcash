@@ -83,7 +83,7 @@ def unpack_sign_tx_response(response: bytes) -> Tuple[int, bytes, int]:
 # Index in associated transaction (little endian)                                     | 4
 # Associated amount (little endian)                                                   | 8
 # Signature                                                                           | 8
-def unpack_trusted_input_response(response: bytes) -> (bytes, int, int, bytes, bytes):
+def unpack_trusted_input_response(response: bytes) -> Tuple[bytes, int, int, bytes, bytes]:
     assert len(response) == 56
     magic, _flags, nonce, txid, trusted_input_idx, amount, sign =  unpack("<BBH32sIQ8s", response)
     assert magic == MAGIC_TRUSTED_INPUT

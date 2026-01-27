@@ -35,7 +35,7 @@ pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppS
     let public_key = &public_key[..public_key_len];
 
     let comp_public_key = compress_public_key(public_key)?;
-    let address_str = public_key_to_address_base58::<150>(&comp_public_key)?;
+    let address_str = public_key_to_address_base58(&comp_public_key, false)?;
 
     // Display address on device if requested
     if display && !ui_display_pk(&address_str)? {

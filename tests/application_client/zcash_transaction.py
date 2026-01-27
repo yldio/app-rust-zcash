@@ -57,9 +57,12 @@ class Transaction:
 #
 #  -- witness data (excluded from txid) --
 #
-# NOTE: lockTime and expiryHeight are, for some reason, serialized at the end of the transaction data
+# NOTE: lockTime and expiryHeight are, for some reason,
+# serialized at the end of the transaction data
 # (as if it were a v4 transaction format).
 def split_tx_to_chunks_v5(buf: bytes) -> list[bytes]:
+    # pylint: disable=R0914
+
     i = 0
     chunks = []
 
@@ -115,3 +118,75 @@ def split_tx_to_chunks_v5(buf: bytes) -> list[bytes]:
     chunks.append(locktime + pack("b", 0x04) + expiry)
 
     return chunks
+
+def split_tx_v5_for_hash_input(buf: bytes) -> dict[str, object]:
+    # pylint: disable=R0914
+
+    i = 0
+
+    header_size = 4 * 5
+    header_quirk_size = 4 * 3
+
+    locktime = buf[header_quirk_size:header_quirk_size + 4]
+    expiry = buf[header_quirk_size + 4:header_quirk_size + 8]
+
+    i += header_size
+
+    vin_n, i = read_compactsize(buf, i)
+    header = bytes(buf[0:header_quirk_size])
+
+    inputs = []
+    for _ in range(vin_n):
+        prevout_start = i
+        i += 32 + 4
+        prevout = buf[prevout_start:i]
+
+        script_len, i = read_compactsize(buf, i)
+        script = buf[i:i + script_len]
+        i += script_len
+
+        sequence = buf[i:i + 4]
+        i += 4
+
+        inputs.append(
+            {
+                "prev": prevout,
+                "script": script,
+                "sequence": sequence,
+            }
+        )
+
+    vout_n, i = read_compactsize(buf, i)
+
+    outputs = []
+    for _ in range(vout_n):
+        value = buf[i:i + 8]
+        i += 8
+
+        script_len, i = read_compactsize(buf, i)
+        script = buf[i:i + script_len]
+        i += script_len
+
+        outputs.append(
+            {
+                "value": value,
+                "script": script,
+            }
+        )
+
+    sap_sp, i = read_compactsize(buf, i)
+    assert sap_sp == 0, "Sapling spends not supported in this chunking function!"
+    sap_out, i = read_compactsize(buf, i)
+    assert sap_out == 0, "Sapling outputs not supported in this chunking function!"
+    orch, i = read_compactsize(buf, i)
+    assert orch == 0, "Orchard actions not supported in this chunking function!"
+
+    assert i == len(buf), "Transaction splitting did not consume all bytes!"
+
+    return {
+        "header": header,
+        "inputs": inputs,
+        "outputs": outputs,
+        "locktime": locktime,
+        "expiry": expiry,
+    }

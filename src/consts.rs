@@ -1,6 +1,10 @@
 #![allow(dead_code)]
 
+pub const ZEC_DECIMALS: u32 = 8;
+pub const ZEC_DECIMALS_DIV: u64 = 10u64.pow(ZEC_DECIMALS);
+
 pub const MAX_SCRIPT_SIZE: usize = 1024 * 2;
+pub const MAX_OUTPUTS_NUMBER: usize = 8;
 
 pub const ZCASH_CLA: u8 = 0xE0;
 pub const ZCASH_ADM_CLA: u8 = 0xD0;
@@ -31,6 +35,11 @@ pub const INS_GET_FIRMWARE_VERSION: u8 = 0xC4;
 pub const INS_COMPOSE_MOFN_ADDRESS: u8 = 0xC6;
 pub const INS_GET_POS_SEED: u8 = 0xCA;
 pub const INS_DEBUG: u8 = 0xD0;
+
+pub const P2_OPERATION_TYPE_OVERWINTER: u8 = 0x04;
+pub const P2_OPERATION_TYPE_SAPLING: u8 = 0x05;
+pub const P2_OPERATION_TYPE_ORCHARD: u8 = 0x06;
+pub const P2_CONTINUE_HASHING: u8 = 0x80;
 
 pub const SW_PIN_REMAINING_ATTEMPTS: u16 = 0x63C0;
 pub const SW_INCORRECT_LENGTH: u16 = 0x6700;
@@ -64,3 +73,6 @@ pub const SW_GP_AUTH_FAILED: u16 = 0x6300;
 pub const SW_LICENSING: u16 = 0x6F42;
 pub const SW_HALTED: u16 = 0x6FAA;
 pub const SW_APP_HALTED: u16 = 0x6985;
+
+pub const TRUSTED_INPUT_SIZE: usize = 2 + 2 + 32 + 4 + 8; // magic + rand + txid + idx + amount
+pub const TRUSTED_INPUT_TOTAL_SIZE: usize = TRUSTED_INPUT_SIZE + 8;

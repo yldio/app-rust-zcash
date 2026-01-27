@@ -14,126 +14,347 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *****************************************************************************/
-use crate::app_ui::sign::ui_display_tx;
-use crate::parser::Parser;
-use crate::utils::Bip32Path;
-use crate::{AppSW, SignHashFlag};
+use crate::log::{debug, error, info};
+use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
+use crate::utils::{
+    check_bip44_compliance, compress_public_key, derive_public_key, public_key_hash160, Bip32Path,
+    HexSlice, PubKeyWithCC,
+};
+use crate::AppSW;
+use alloc::string::String;
 use alloc::vec::Vec;
+use ledger_device_sdk::ecc::{Secp256k1, SeedDerive as _};
+use ledger_device_sdk::hash::blake2::Blake2b_256;
+use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::io::Comm;
 use ledger_device_sdk::nbgl::NbglHomeAndSettings;
 
-use serde::Deserialize;
-use serde_json_core::from_slice;
+use zcash_primitives::transaction::TxVersion;
+use zcash_protocol::consensus::BranchId;
 
-const MAX_TRANSACTION_LEN: usize = 510;
+#[derive(Default)]
+pub struct Hashers {
+    // Transparent transaction hashers
+    pub prevouts_hasher: Blake2b_256,
+    pub sequence_hasher: Blake2b_256,
+    pub outputs_hasher: Blake2b_256,
+    pub amounts_hasher: Blake2b_256,
+    pub scripts_hasher: Blake2b_256,
 
-#[derive(Deserialize)]
-pub struct Tx<'a> {
-    #[allow(dead_code)]
-    nonce: u64,
-    pub coin: &'a str,
-    pub value: u64,
-    #[serde(with = "hex::serde")] // Allows JSON deserialization from hex string
-    pub to: [u8; 20],
-    pub memo: &'a str,
+    pub orchard_hasher: Blake2b_256,
+    pub sapling_hasher: Blake2b_256,
+
+    pub tx_full_hasher: Blake2b_256,
+}
+
+#[derive(Default)]
+pub struct TxOutput {
+    pub amount: u64,
+    pub address: String,
+    pub is_change: bool,
+}
+
+#[derive(Default)]
+pub struct TxInfo {
+    pub tx_version: Option<TxVersion>,
+    pub branch_id: Option<BranchId>,
+    pub locktime: u32,
+    pub sighash_type: u8,
+    pub expiry_height: u32,
+    pub total_amount: u64,
+
+    pub outputs: Vec<TxOutput>,
+    pub is_change_found: bool,
+    pub change_pk_hash: [u8; 20],
+
+    pub prevouts_hash: [u8; 32],
+    pub sequence_hash: [u8; 32],
+    pub outputs_hash: [u8; 32],
+    pub amounts_hash: [u8; 32],
+    pub scripts_hash: [u8; 32],
+
+    pub header_digest: [u8; 32],
+}
+
+#[derive(Default)]
+pub struct TrustedInputInfo {
+    // Transaction input to catch for a Trusted Input lookup
+    pub input_idx: Option<u32>,
+    pub is_input_processed: bool,
+    pub amount: u64,
+    pub tx_id: [u8; 32],
+}
+
+#[derive(Default)]
+pub struct TxSigningState {
+    pub is_tx_parsed_once: bool,
 }
 
 pub struct TxContext {
-    raw_tx: Vec<u8>,
-    path: Bip32Path,
     review_finished: bool,
+
+    pub is_extra_header_data_set: bool,
+    pub tx_signing_state: TxSigningState,
+
+    pub tx_info: TxInfo,
+    pub trusted_input_info: TrustedInputInfo,
+    pub hashers: Hashers,
+
     pub home: NbglHomeAndSettings,
-    // Transaction input to catch for a Trusted Input lookup
-    transaction_trusted_input_idx: Option<u32>,
     pub parser: Parser,
+    pub output_parser: OutputParser,
 }
 
-// Implement constructor for TxInfo with default values
 impl TxContext {
-    // Constructor
-    pub fn new() -> TxContext {
+    pub fn new(parser_mode: ParserMode) -> TxContext {
         TxContext {
-            raw_tx: Vec::new(),
-            path: Default::default(),
             review_finished: false,
+
+            tx_info: Default::default(),
+            trusted_input_info: Default::default(),
+            hashers: Default::default(),
+
+            is_extra_header_data_set: false,
+            tx_signing_state: Default::default(),
+
             home: Default::default(),
-            transaction_trusted_input_idx: None,
-            parser: Parser::new(),
+            parser: Parser::new(parser_mode),
+            output_parser: OutputParser::new(),
         }
     }
 
     pub fn set_transaction_trusted_input_idx(&mut self, idx: u32) {
-        self.transaction_trusted_input_idx = idx.into();
-        self.parser.set_transaction_trusted_input_idx(idx);
+        self.trusted_input_info.input_idx = idx.into();
     }
 
-    pub fn transaction_trusted_input_idx(&self) -> Option<u32> {
-        self.transaction_trusted_input_idx
-    }
-
-    // Get review status
-    #[allow(dead_code)]
-    pub fn finished(&self) -> bool {
+    pub fn review_finished(&self) -> bool {
         self.review_finished
-    }
-    // Implement reset for TxInfo
-    pub fn reset(&mut self) {
-        self.raw_tx.clear();
-        self.path = Default::default();
-        self.review_finished = false;
-        self.transaction_trusted_input_idx = None;
-        self.parser = Parser::new();
     }
 }
 
-pub fn handler_sign_tx(
+pub fn handler_hash_input_start(
     comm: &mut Comm,
     ctx: &mut TxContext,
-    flag: SignHashFlag,
-    _first: bool,
-    _next: bool,
+    first: bool,
+    continue_hashing: bool,
 ) -> Result<(), AppSW> {
+    if continue_hashing {
+        info!("Reset parser");
+        ctx.parser = Parser::new(ParserMode::Signature);
+    } else if first {
+        info!("Init TX context");
+        *ctx = TxContext::new(ParserMode::Signature);
+    }
+
     // Try to get data from comm
     let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
-    // First chunk, try to parse the path
-    if flag == SignHashFlag::Start {
-        // Reset transaction context
-        ctx.reset();
-        // This will propagate the error if the path is invalid
-        ctx.path = data.try_into()?;
-        Ok(())
-    // Next chunks, append data to raw_tx and return or parse
-    // the transaction if it is the last chunk.
-    } else {
-        if ctx.raw_tx.len() + data.len() > MAX_TRANSACTION_LEN {
+
+    ctx.parser
+        .parse_chunk(
+            &mut ParserCtx {
+                tx_state: &mut ctx.tx_signing_state,
+                tx_info: &mut ctx.tx_info,
+                trusted_input_info: &mut ctx.trusted_input_info,
+                hashers: &mut ctx.hashers,
+            },
+            data,
+        )
+        .map_err(|e| {
+            error!("Error parsing/hashing TX: {:#?}", e);
+            match e.source {
+                ParserSourceError::Hash(_) => AppSW::TechnicalProblem,
+                _ => AppSW::IncorrectData,
+            }
+        })?;
+
+    Ok(())
+}
+
+pub fn handler_hash_input_finalize_full(
+    comm: &mut Comm,
+    ctx: &mut TxContext,
+    is_change_info: bool,
+) -> Result<(), AppSW> {
+    let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
+
+    if data.is_empty() {
+        return Err(AppSW::WrongApduLength);
+    }
+
+    // Check processing states
+    if !ctx.parser.is_presign_ready() || ctx.output_parser.is_finished() {
+        error!("Bad processing state");
+        return Err(AppSW::ConditionsOfUseNotSatisfied);
+    }
+
+    if is_change_info {
+        let path: Bip32Path = data.try_into()?;
+
+        let PubKeyWithCC {
+            public_key,
+            public_key_len,
+            ..
+        } = derive_public_key(&path)?;
+        let public_key = &public_key[..public_key_len];
+        let comp_public_key = compress_public_key(public_key)?;
+
+        ctx.tx_info.change_pk_hash = public_key_hash160(&comp_public_key)?;
+
+        info!("Change pk hash: {}", HexSlice(&ctx.tx_info.change_pk_hash));
+
+        if !check_bip44_compliance(&path, true) {
+            error!("Change address path not Bip44 compliant");
+            return Err(AppSW::ConditionsOfUseNotSatisfied);
+        }
+
+        return Ok(());
+    }
+
+    ctx.output_parser
+        .parse(
+            &mut crate::parser::OutputParserCtx {
+                tx_info: &mut ctx.tx_info,
+                hashers: &mut ctx.hashers,
+            },
+            data,
+        )
+        .map_err(|e| {
+            error!("Error parsing TX output: {:#?}", e);
+            match e.source {
+                ParserSourceError::Hash(_) => AppSW::TechnicalProblem,
+                ParserSourceError::AppSW(sw) => sw,
+                ParserSourceError::UserDenied => AppSW::Deny,
+                _ => AppSW::IncorrectData,
+            }
+        })?;
+
+    if ctx.output_parser.is_finished() {
+        ctx.review_finished = true;
+        if !ctx.tx_signing_state.is_tx_parsed_once {
+            info!("Set TX parsed once flag");
+            ctx.tx_signing_state.is_tx_parsed_once = true;
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_extra_data(buf: &[u8]) -> Result<(u32, u8, u32), AppSW> {
+    if buf.len() < 9 {
+        error!("Not enough data for extra header data");
+        return Err(AppSW::WrongApduLength);
+    }
+
+    // NOTE: for some reason big endian is used here
+    let locktime: u32 = u32::from_be_bytes(buf[..4].try_into().unwrap());
+    let sighash_type: u8 = buf[4];
+    let expiry_height: u32 = u32::from_be_bytes(buf[5..9].try_into().unwrap());
+
+    info!("Extra TX data received:");
+    info!("locktime: {}", locktime);
+    info!("sighash_type: {}", sighash_type);
+    info!("expiry_height: {}", expiry_height);
+
+    Ok((locktime, sighash_type, expiry_height))
+}
+
+pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), AppSW> {
+    let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
+
+    if data.is_empty() {
+        error!("Not enough data for derivation path length");
+        return Err(AppSW::WrongApduLength);
+    }
+
+    if ctx.tx_signing_state.is_tx_parsed_once && !ctx.is_extra_header_data_set {
+        // not used path size 1 + not used auth len 1 + locktime 4 + sighhash ty 1 +  expiry height 4
+        const EXTRA_HEADER_DATA_LEN: usize = 11;
+        if data.len() != EXTRA_HEADER_DATA_LEN {
+            error!("Not enough data for extra header data");
             return Err(AppSW::WrongApduLength);
         }
 
-        // Append data to raw_tx
-        ctx.raw_tx.extend(data);
+        // Skip unused bytes
+        let data = &data[2..];
 
-        // If we expect more chunks, return
-        if flag == SignHashFlag::Finalize {
-            ctx.review_finished = false;
-            Ok(())
-        // Otherwise, try to parse the transaction
-        } else {
-            // Try to deserialize the transaction
-            let (tx, _): (Tx, usize) = from_slice(&ctx.raw_tx).map_err(|_| AppSW::TxParsingFail)?;
-            // Display transaction. If user approves
-            // the transaction, sign it. Otherwise,
-            // return a "deny" status word.
-            if ui_display_tx(&tx)? {
-                ctx.review_finished = true;
-                compute_signature_and_append(comm, ctx)
-            } else {
-                ctx.review_finished = true;
-                Err(AppSW::Deny)
-            }
-        }
+        // Extract extra TX data
+        let (locktime, sighash_type, expiry_height) = parse_extra_data(data)?;
+
+        ctx.tx_info.locktime = locktime;
+        ctx.tx_info.sighash_type = sighash_type;
+        ctx.tx_info.expiry_height = expiry_height;
+
+        ctx.is_extra_header_data_set = true;
+
+        return Ok(());
     }
+
+    if !ctx.parser.is_ready_to_sign() {
+        error!("Bad processing state for signing");
+        return Err(AppSW::ConditionsOfUseNotSatisfied);
+    }
+
+    let path_len = data[0] as usize * 4 + 1; // Path segment 4 bytes + 1 byte length
+
+    if data.len() < path_len {
+        error!("Not enough data for derivation path");
+        return Err(AppSW::WrongApduLength);
+    }
+
+    let path_data = &data[..path_len];
+    let path: Bip32Path = path_data.try_into()?;
+
+    if !check_bip44_compliance(&path, false) {
+        error!("Output address path not Bip44 compliant");
+        return Err(AppSW::ConditionsOfUseNotSatisfied);
+    }
+
+    // Skip unused trailing data
+
+    // Finalize hash
+    compute_signature_and_append(
+        comm,
+        &mut ctx.hashers.tx_full_hasher,
+        &path,
+        ctx.tx_info.sighash_type,
+        true,
+    )?;
+
+    Ok(())
 }
 
-fn compute_signature_and_append(_comm: &mut Comm, _ctx: &mut TxContext) -> Result<(), AppSW> {
+fn compute_signature_and_append(
+    comm: &mut Comm,
+    tx_full_hasher: &mut Blake2b_256,
+    path: &Bip32Path,
+    sighash_type: u8,
+    deterministic_sign: bool,
+) -> Result<(), AppSW> {
+    let mut hash = [0u8; 32];
+    tx_full_hasher
+        .finalize(&mut hash)
+        .map_err(|_| AppSW::TechnicalProblem)?;
+
+    debug!("Final TX hash: {}", HexSlice(&hash));
+
+    let (p, _chain_code) = Secp256k1::derive_from(path.as_ref());
+
+    let (mut sig, sig_len, info) = if deterministic_sign {
+        p.deterministic_sign(&hash)
+    } else {
+        p.sign(&hash)
+    }
+    .map_err(|_| AppSW::TechnicalProblem)?;
+
+    // Store information about the parity of the 'y' coordinate
+    if info != 0 {
+        sig[0] |= 0x01;
+    }
+
+    debug!("Signature: {}", HexSlice(&sig[..sig_len as usize]));
+
+    comm.append(&sig[..sig_len as usize]);
+    comm.append(&[sighash_type]);
+
     Ok(())
 }

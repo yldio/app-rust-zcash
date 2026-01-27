@@ -2,11 +2,11 @@ use image::{ImageFormat, ImageReader, Pixel};
 
 fn main() {
     println!("cargo:rerun-if-changed=script.ld");
-    println!("cargo:rerun-if-changed=icons/crab_14x14.gif");
+    println!("cargo:rerun-if-changed=icons/nanox_app_zcash.gif");
     println!("cargo:rerun-if-changed=icons/mask_14x14.gif");
 
     let path = std::path::PathBuf::from("icons");
-    let reader = ImageReader::open(path.join("crab_14x14.gif")).unwrap();
+    let reader = ImageReader::open(path.join("nanox_app_zcash.gif")).unwrap();
     let img = reader.decode().unwrap();
     let mut gray = img.into_luma8();
 

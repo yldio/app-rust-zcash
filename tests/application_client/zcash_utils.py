@@ -4,11 +4,25 @@ from typing import Optional, Literal
 
 import base58
 
-
 UINT64_MAX: int = 2**64-1
 UINT32_MAX: int = 2**32-1
 UINT16_MAX: int = 2**16-1
 
+try:
+    _ripemd160 = lambda: hashlib.new("ripemd160") # type: ignore # pylint: disable=C3001
+except ValueError:
+    _ripemd160 = None # type: ignore
+
+def ripemd160(data: bytes) -> bytes:
+    #if _ripemd160 is not None:
+    #    h = _ripemd160()
+    #    h.update(data)
+    #    return h.digest()
+    # fallback
+    from Crypto.Hash import RIPEMD160 # pylint: disable=C0415
+    h = RIPEMD160.new()
+    h.update(data)
+    return h.digest()
 
 def write_varint(n: int) -> bytes:
     if n < 0xFC:
@@ -83,9 +97,8 @@ def t_address_from_pubkey(pub_key: bytes) -> str:
 
     # Perform SHA256 followed by RIPEMD160
     sha256_hash = hashlib.sha256(compressed_pub_key).digest()
-    ripemd160 = hashlib.new('ripemd160')
-    ripemd160.update(sha256_hash)
-    ripemd160_hash = ripemd160.digest()
+
+    ripemd160_hash = ripemd160(sha256_hash)
 
     # Prepend the network byte (0x1C, 0xB8 for mainnet)
     network_bytes = b'\x1C\xB8'  # for t-addresses

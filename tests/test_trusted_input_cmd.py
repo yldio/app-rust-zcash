@@ -1,3 +1,5 @@
+# pylint: disable=C0301
+
 from application_client.zcash_command_sender import ZcashCommandSender
 from application_client.zcash_response_unpacker import unpack_trusted_input_response
 

@@ -1,6 +1,4 @@
-use alloc::vec::Vec;
-use arrayvec::ArrayString;
-use bs58::encode::EncodeTarget;
+use alloc::{string::String, vec::Vec};
 
 use crate::{
     log::{debug, error},
@@ -8,22 +6,6 @@ use crate::{
 };
 
 pub mod blake2b_256_pers;
-
-// Buffer for bs58 encoding output
-struct OutBuf<'b, const N: usize> {
-    out: &'b mut [u8; N],
-}
-
-impl<const N: usize> EncodeTarget for OutBuf<'_, N> {
-    fn encode_with(
-        &mut self,
-        max_len: usize,
-        f: impl for<'a> FnOnce(&'a mut [u8]) -> bs58::encode::Result<usize>,
-    ) -> bs58::encode::Result<usize> {
-        let len = f(&mut self.out[..max_len])?;
-        Ok(len)
-    }
-}
 
 /// BIP32 path stored as an array of [`u32`].
 #[derive(Default)]
@@ -105,7 +87,7 @@ pub fn public_key_hash160(public_key: &[u8]) -> Result<[u8; 20], AppSW> {
     Ok(ripemd160_output)
 }
 
-fn compute_cheksum(input: &[u8]) -> [u8; 4] {
+fn compute_checksum(input: &[u8]) -> [u8; 4] {
     use ledger_device_sdk::hash::{sha2::Sha2_256, HashInit};
 
     let mut sha256 = Sha2_256::new();
@@ -136,37 +118,35 @@ pub fn compress_public_key(public_key: &[u8]) -> Result<[u8; 33], AppSW> {
     Ok(compressed_pk)
 }
 
-pub fn public_key_to_address_base58<const MAX_OUT_SIZE: usize>(
-    public_key: &[u8],
-) -> Result<ArrayString<MAX_OUT_SIZE>, AppSW> {
-    // T-address P2PKH prefix (mainnet)
-    const P2PKH_PREFIX: [u8; 2] = [0x1C, 0xB8];
-    // T-address P2PKH prefix (testnet)
-    const _P2PKH_PREFIX: [u8; 2] = [0x1D, 0x25];
+// T-address P2PKH prefix (mainnet)
+const P2PKH_PREFIX: [u8; 2] = [0x1C, 0xB8];
+// T-address P2PKH prefix (testnet)
+const _P2PKH_PREFIX: [u8; 2] = [0x1D, 0x25];
 
+pub fn public_key_to_address_base58(public_key: &[u8], is_hashed: bool) -> Result<String, AppSW> {
     let mut buf = [0u8; 26];
 
     // For Zcash, the address is the HASH160 of the public key
-    debug!("To hash: {:02X?}", &public_key);
-    let pubkey_hash160 = public_key_hash160(public_key)?;
-    buf[0] = P2PKH_PREFIX[0];
-    buf[1] = P2PKH_PREFIX[1];
-    buf[2..22].copy_from_slice(&pubkey_hash160);
+    if is_hashed {
+        buf[0..22].copy_from_slice(&public_key[0..22]);
+    } else {
+        debug!("To hash: {:02X?}", &public_key);
+        let pubkey_hash160 = public_key_hash160(public_key)?;
+        buf[0] = P2PKH_PREFIX[0];
+        buf[1] = P2PKH_PREFIX[1];
+        buf[2..22].copy_from_slice(&pubkey_hash160);
+    }
 
-    let checksum = compute_cheksum(&buf[0..22]);
+    let checksum = compute_checksum(&buf[0..22]);
     buf[22..26].copy_from_slice(&checksum);
 
-    let mut out_buf = [0u8; MAX_OUT_SIZE];
-    let out_len = bs58::encode(&buf[..26])
-        .onto(OutBuf { out: &mut out_buf })
+    let mut address_base58 = String::new();
+    let _ = bs58::encode(&buf[..26])
+        .onto(&mut address_base58)
         .map_err(|_| {
             error!("Base58 encoding failed");
             AppSW::IncorrectData
         })?;
-
-    let mut address_base58 =
-        ArrayString::from_byte_string(&out_buf).expect("bs58 produces valid ASCII");
-    address_base58.truncate(out_len);
 
     debug!("Address Base58: {}", address_base58);
 
@@ -206,4 +186,201 @@ impl core::fmt::Display for HexSlice<'_> {
         }
         Ok(())
     }
+}
+
+/// Constant-time memory comparison to prevent timing attacks.
+#[inline(never)]
+pub fn secure_memcmp(buf1: &[u8], buf2: &[u8]) -> bool {
+    if buf1.len() != buf2.len() {
+        return false;
+    }
+
+    let mut error: u8 = 0;
+    for i in 0..buf1.len() {
+        error |= buf1[i] ^ buf2[i];
+    }
+
+    error == 0
+}
+
+pub fn output_script_is_op_return(script_pubkey: &[u8]) -> bool {
+    if script_pubkey.len() < 2 {
+        return false;
+    }
+
+    script_pubkey[1] == 0x6A
+}
+
+pub fn output_script_is_regular(script_pubkey: &[u8]) -> bool {
+    if script_pubkey.len() != 0x19 {
+        return false;
+    }
+
+    // OP_DUP, OP_HASH160, address length
+    const REGULAR_PREFIX: [u8; 3] = [0x76, 0xA9, 0x14];
+    // OP_EQUALVERIFY, OP_CHECKSIG
+    const REGULAR_POSTFIX: [u8; 2] = [0x88, 0xAC];
+
+    if script_pubkey[0] != REGULAR_PREFIX[0]
+        || script_pubkey[1] != REGULAR_PREFIX[1]
+        || script_pubkey[2] != REGULAR_PREFIX[2]
+    {
+        return false;
+    }
+
+    if script_pubkey[script_pubkey.len() - 2] != REGULAR_POSTFIX[0]
+        || script_pubkey[script_pubkey.len() - 1] != REGULAR_POSTFIX[1]
+    {
+        return false;
+    }
+
+    true
+}
+
+pub fn output_script_is_p2sh(script_pubkey: &[u8]) -> bool {
+    if script_pubkey.is_empty() {
+        return false;
+    }
+
+    // P2SH script prefix
+    const P2SH_PREFIX: [u8; 3] = [0xA9, 0x14, 0x00];
+    const P2SH_POSTFIX: [u8; 2] = [0x87, 0x00];
+
+    if script_pubkey.len() < 23 {
+        return false;
+    }
+
+    if script_pubkey[0] != P2SH_PREFIX[0]
+        || script_pubkey[1] != P2SH_PREFIX[1]
+        || script_pubkey[2] != P2SH_PREFIX[2]
+    {
+        return false;
+    }
+
+    if script_pubkey[script_pubkey.len() - 1] != P2SH_POSTFIX[1] {
+        return false;
+    }
+
+    true
+}
+
+#[derive(PartialEq, Debug)]
+pub enum CheckDispOutput {
+    None,
+    Displayable,
+    Change,
+}
+
+pub fn check_output_displayable(
+    script_pubkey: &[u8],
+    amount: u64,
+    change_address: &[u8; 20],
+) -> CheckDispOutput {
+    const ADDRESS_OFFSET: usize = 3;
+
+    debug!("Check output displayable");
+    debug!("ScriptPubKey: {:02X?}", script_pubkey);
+
+    if script_pubkey.is_empty() {
+        return CheckDispOutput::None;
+    }
+
+    if amount == 0 {
+        return CheckDispOutput::None;
+    }
+
+    if output_script_is_op_return(script_pubkey) || output_script_is_p2sh(script_pubkey) {
+        return CheckDispOutput::None;
+    }
+
+    let script_len = script_pubkey.len();
+    if script_len < ADDRESS_OFFSET + 20 {
+        return CheckDispOutput::None;
+    }
+
+    if &script_pubkey[ADDRESS_OFFSET..][..20] == change_address {
+        debug!("Change output detected");
+        return CheckDispOutput::Change;
+    }
+
+    debug!("Displayable output detected");
+    CheckDispOutput::Displayable
+}
+
+pub fn get_address_from_output_script(script: &[u8]) -> Result<String, AppSW> {
+    const COIN_P2PKH_VERSION: u16 = 7352;
+    const ADDRESS_OFFSET: usize = 3;
+    const VERSION_SIZE: usize = 2;
+    const ADDRESS_SIZE: usize = 22;
+
+    if output_script_is_op_return(script) {
+        error!("Unsupported OP_RETURN script");
+        return Err(AppSW::IncorrectData);
+    }
+
+    if !output_script_is_regular(script) {
+        error!("Unsupported script type");
+        return Err(AppSW::IncorrectData);
+    }
+
+    let mut address = [0u8; ADDRESS_SIZE];
+    let version = COIN_P2PKH_VERSION.to_be_bytes();
+
+    address[..VERSION_SIZE].copy_from_slice(&version);
+    address[VERSION_SIZE..].copy_from_slice(&script[ADDRESS_OFFSET..ADDRESS_OFFSET + 20]);
+
+    let address_base58 = public_key_to_address_base58(&address, true)?;
+
+    Ok(address_base58)
+}
+
+pub fn check_bip44_compliance(path: &Bip32Path, is_change_path: bool) -> bool {
+    const BIP44_PATH_LEN: usize = 5;
+    const BIP44_PURPOSE_OFFSET: usize = 0;
+    const BIP44_COIN_TYPE_OFFSET: usize = 1;
+    const BIP44_ACCOUNT_OFFSET: usize = 2;
+    const BIP44_CHANGE_OFFSET: usize = 3;
+    const BIP44_ADDRESS_INDEX_OFFSET: usize = 4;
+    const BIP44_COIN_TYPE: u32 = 133;
+    const MAX_BIP44_ACCOUNT_RECOMMENDED: u32 = 100;
+    const MAX_BIP44_ADDRESS_INDEX_RECOMMENDED: u32 = 50000;
+
+    let path = path.as_ref();
+
+    if path.len() != BIP44_PATH_LEN {
+        error!("Bad Bip44 path len");
+        return false;
+    }
+
+    let purpose = path[BIP44_PURPOSE_OFFSET] & 0x7FFF_FFFF;
+    if purpose != 44 && purpose != 49 && purpose != 84 {
+        error!("Bad Bip44 purpose");
+        return false;
+    }
+
+    let coin_type = path[BIP44_COIN_TYPE_OFFSET] & 0x7FFF_FFFF;
+    if coin_type != BIP44_COIN_TYPE {
+        error!("Bad Bip44 coin type");
+        return false;
+    }
+
+    let account = path[BIP44_ACCOUNT_OFFSET] & 0x7FFF_FFFF;
+    if account > MAX_BIP44_ACCOUNT_RECOMMENDED {
+        error!("Bad Bip44 account");
+        return false;
+    }
+
+    let change = path[BIP44_CHANGE_OFFSET];
+    if change != if is_change_path { 1 } else { 0 } {
+        error!("Bad Bip44 change");
+        return false;
+    }
+
+    let address_index = path[BIP44_ADDRESS_INDEX_OFFSET] & 0x7FFF_FFFF;
+    if address_index > MAX_BIP44_ADDRESS_INDEX_RECOMMENDED {
+        error!("Bad Bip44 address index");
+        return false;
+    }
+
+    true
 }

@@ -17,3 +17,6 @@ jobs:
   misspell:
     name: Check misspellings
     uses: LedgerHQ/ledger-app-workflows/.github/workflows/reusable_spell_check.yml@v1
+    with:
+      src_path: "./src,./build.rs,./Cargo.toml,./tests,./docs,./README.md,./CHANGELOG.md"
+

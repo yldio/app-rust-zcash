@@ -15,6 +15,7 @@ tests/snapshots-tmp/
 # Python
 *.pyc[cod]
 *.egg
+*.typed
 __pycache__/
 *.egg-info/
 .eggs/
@@ -25,3 +26,4 @@ __pycache__/
 ledger/
 # Build directory
 build/
+target-rust-analyzer/

@@ -5,12 +5,10 @@ authors = ["Ledger"]
 edition = "2021"
 
 [dependencies]
-ledger_device_sdk = "1.30.0"
-ledger_secure_sdk_sys = "1.13.0"
+ledger_device_sdk = "1.*"
+ledger_secure_sdk_sys = "1.*"
 include_gif = "1.*"
 core2 = { version = "0.3.0", default-features = false }
-serde = { version="1.0.192", default-features = false, features = ["derive"] }
-serde-json-core = { git = "https://github.com/rust-embedded-community/serde-json-core" }
 hex = { version = "0.4.3", default-features = false, features = ["serde", "alloc"] }
 numtoa = "0.2.4"
 arrayvec = { version = "0.7.6", default-features = false}
@@ -51,19 +49,19 @@ path = ["44'/133'"]
 name = "Zcash"
 
 [package.metadata.ledger.nanox]
-icon = "icons/crab_14x14.gif"
+icon = "icons/nanox_app_zcash.gif"
 
 [package.metadata.ledger.nanosplus]
-icon = "icons/crab_14x14.gif"
+icon = "icons/nanox_app_zcash.gif"
 
 [package.metadata.ledger.stax]
-icon = "icons/crab_32x32.gif"
+icon = "icons/stax_app_zcash.gif"
 
 [package.metadata.ledger.flex]
-icon = "icons/crab_40x40.gif"
+icon = "icons/flex_app_zcash.gif"
 
 [package.metadata.ledger.apex_p]
-icon = "icons/crab_32x32.png"
+icon = "icons/apex_app_zcash.gif"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("apex_p", "stax", "flex", "nanos", "nanox", "nanosplus"))'] }
