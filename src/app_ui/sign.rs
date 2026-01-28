@@ -17,9 +17,9 @@
 use crate::{app_ui::load_glyph, consts::ZEC_DECIMALS_DIV, AppSW};
 
 use alloc::{format, string::String, vec::Vec};
+use ledger_device_sdk::nbgl::{Field, NbglReview};
 
 use crate::handlers::sign_tx::TxOutput;
-use ledger_device_sdk::nbgl::{Field, NbglReview};
 
 fn format_zec_amount(amount: u64) -> String {
     // ZEC has 8 decimal places

@@ -15,14 +15,23 @@
  *  limitations under the License.
  *****************************************************************************/
 
-use ledger_device_sdk::nbgl::NbglAddressReview;
+use ledger_device_sdk::nbgl::NbglGlyph;
+use ledger_device_sdk::{include_gif, nbgl::NbglAddressReview};
 
-use crate::{app_ui::load_glyph, AppSW};
+use crate::AppSW;
 
 pub fn ui_display_pk(addr: &str) -> Result<bool, AppSW> {
+    // Load glyph from file with include_gif macro. Creates an NBGL compatible glyph.
+    #[cfg(target_os = "apex_p")]
+    const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("glyphs/zcash_48px.png", NBGL));
+    #[cfg(any(target_os = "stax", target_os = "flex"))]
+    const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("glyphs/zcash_64px.png", NBGL));
+    #[cfg(any(target_os = "nanosplus", target_os = "nanox"))]
+    const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("glyphs/zcash_14px.png", NBGL));
+
     // Display the address confirmation screen.
     Ok(NbglAddressReview::new()
-        .glyph(load_glyph())
-        .review_title("Verify ZEC address")
+        .glyph(&FERRIS)
+        .review_title("Verify ZCASH address")
         .show(addr))
 }
