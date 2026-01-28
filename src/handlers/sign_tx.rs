@@ -30,7 +30,7 @@ use ledger_device_sdk::io::Comm;
 
 use ledger_device_sdk::nbgl::NbglHomeAndSettings;
 use ledger_device_sdk::libcall::swap::CreateTxParams;
-use serde::Deserialize;
+
 
 
 
@@ -97,14 +97,14 @@ pub struct TxSigningState {
 }
 
 
-#[derive(Deserialize)]
+/// This struct will be needed wen implementing SWAP later. 
+/// TODO: rm this comment
 pub struct Tx<'a> {
     #[allow(dead_code)]
     nonce: u64,
     #[allow(unused)]
     pub coin: &'a str,
     pub value: u64,
-    #[serde(with = "hex::serde")] // Allows JSON deserialization from hex string
     pub to: [u8; 20],
     #[allow(unused)]
     pub memo: &'a str,

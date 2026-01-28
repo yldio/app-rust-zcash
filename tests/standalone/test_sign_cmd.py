@@ -2,6 +2,9 @@
 
 from application_client.zcash_command_sender import ZcashCommandSender
 from application_client.zcash_response_unpacker import unpack_get_public_key_response
+from standalone.utils import check_signature_validity
+
+
 
 def test_sign_tx_v5_simple(backend, scenario_navigator):
     LOCKTIME = 0x00
@@ -50,6 +53,7 @@ def test_sign_tx_v5_simple(backend, scenario_navigator):
         input_index=0,
         input_amounts=[81630485]
     )
+
 
 def test_sign_tx_v5_change(backend, scenario_navigator):
     LOCKTIME = 0x00

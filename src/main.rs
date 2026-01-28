@@ -204,7 +204,7 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
     };
 
     if show_status {
-        #[cfg(not(any(target_os = "nanox", target_os = "nanosplus")))]
+        #[cfg_attr(any(target_os = "nanox", target_os = "nanosplus"), allow(unused_variables))]
         {
             use ledger_device_sdk::nbgl::NbglReviewStatus;
 
