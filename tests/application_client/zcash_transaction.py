@@ -61,7 +61,7 @@ class Transaction:
 # serialized at the end of the transaction data
 # (as if it was a v4 transaction format).
 def split_tx_to_chunks_v5(buf: bytes) -> list[bytes]:
-    # pylint: disable=R0914
+    # pylint: disable=R0914 disable=R0915
 
     i = 0
     chunks = []
