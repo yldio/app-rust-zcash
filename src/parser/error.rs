@@ -1,0 +1,110 @@
+use core2::io::Error as IoError;
+
+use ledger_device_sdk::hash::HashError;
+use ledger_device_sdk::hmac::HMACError;
+
+use zcash_protocol::value::BalanceError;
+
+use crate::AppSW;
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub enum ParserSourceError {
+    Io(IoError),
+    Hash(HashError),
+    Hmac(HMACError),
+    Balance(BalanceError),
+    Custom(&'static str),
+    AppSW(AppSW),
+    UserDenied,
+}
+
+impl From<IoError> for ParserSourceError {
+    fn from(e: IoError) -> Self {
+        ParserSourceError::Io(e)
+    }
+}
+
+impl From<HashError> for ParserSourceError {
+    fn from(e: HashError) -> Self {
+        ParserSourceError::Hash(e)
+    }
+}
+
+impl From<HMACError> for ParserSourceError {
+    fn from(e: HMACError) -> Self {
+        ParserSourceError::Hmac(e)
+    }
+}
+
+impl From<BalanceError> for ParserSourceError {
+    fn from(e: BalanceError) -> Self {
+        ParserSourceError::Balance(e)
+    }
+}
+
+impl From<&'static str> for ParserSourceError {
+    fn from(e: &'static str) -> Self {
+        ParserSourceError::Custom(e)
+    }
+}
+
+impl From<AppSW> for ParserSourceError {
+    fn from(e: AppSW) -> Self {
+        ParserSourceError::AppSW(e)
+    }
+}
+
+#[derive(Debug)]
+pub struct ParserError {
+    pub source: ParserSourceError,
+    #[allow(unused)]
+    pub file: &'static str,
+    #[allow(unused)]
+    pub line: u32,
+}
+
+impl ParserError {
+    #[track_caller]
+    pub fn from_str(reason: &'static str) -> ParserError {
+        ParserError {
+            source: reason.into(),
+            file: file!(),
+            line: line!(),
+        }
+    }
+
+    #[track_caller]
+    pub fn user() -> ParserError {
+        ParserError {
+            source: ParserSourceError::UserDenied,
+            file: file!(),
+            line: line!(),
+        }
+    }
+}
+
+macro_rules! _ok {
+    ($expr:expr) => {{
+        match $expr {
+            Ok(v) => Ok(v),
+            Err(e) => Err(ParserError {
+                source: e.into(),
+                file: file!(),
+                line: line!(),
+            }),
+        }?
+    }};
+    ($expr:expr, $reason:literal) => {{
+        match $expr {
+            Ok(v) => Ok(v),
+            Err(()) => Err(ParserError {
+                source: $reason.into(),
+                file: file!(),
+                line: line!(),
+            }),
+        }?
+    }};
+}
+
+pub(super) use _ok as ok;

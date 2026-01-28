@@ -154,7 +154,7 @@ pub fn handler_hash_input_start(
     let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
 
     ctx.parser
-        .parse_chunk(
+        .parse(
             &mut ParserCtx {
                 tx_state: &mut ctx.tx_signing_state,
                 tx_info: &mut ctx.tx_info,

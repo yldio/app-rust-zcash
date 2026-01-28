@@ -1,15 +1,15 @@
+use zcash_primitives::transaction::txid::ZCASH_SAPLING_OUTPUTS_MEMOS_HASH_PERSONALIZATION;
+use zcash_primitives::transaction::txid::ZCASH_SAPLING_OUTPUTS_NONCOMPACT_HASH_PERSONALIZATION;
+use zcash_primitives::transaction::txid::{
+    ZCASH_SAPLING_OUTPUTS_COMPACT_HASH_PERSONALIZATION, ZCASH_SAPLING_OUTPUTS_HASH_PERSONALIZATION,
+    ZCASH_SAPLING_SPENDS_NONCOMPACT_HASH_PERSONALIZATION,
+};
+use zcash_primitives::transaction::txid::{
+    ZCASH_SAPLING_SPENDS_COMPACT_HASH_PERSONALIZATION, ZCASH_SAPLING_SPENDS_HASH_PERSONALIZATION,
+};
 use zcash_protocol::value::ZatBalance;
 
 use super::*;
-
-// TODO: use constants from zcash library
-const NU5_PARAM_SAPLING_SPENDS: &[u8; 16] = b"ZTxIdSSpendsHash";
-const NU5_PARAM_SAPLING_SPENDS_COMPACT: &[u8; 16] = b"ZTxIdSSpendCHash";
-const NU5_PARAM_SAPLING_SPENDS_NONCOMPACT: &[u8; 16] = b"ZTxIdSSpendNHash";
-const NU5_PARAM_SAPLING_OUTPUTS: &[u8; 16] = b"ZTxIdSOutputHash";
-const NU5_PARAM_SAPLING_OUTPUTS_COMPACT: &[u8; 16] = b"ZTxIdSOutC__Hash";
-const NU5_PARAM_SAPLING_OUTPUTS_MEMO: &[u8; 16] = b"ZTxIdSOutM__Hash";
-const NU5_PARAM_SAPLING_OUTPUTS_NONCOMPACT: &[u8; 16] = b"ZTxIdSOutN__Hash";
 
 impl Parser {
     pub fn parse_sapling(
@@ -29,26 +29,25 @@ impl Parser {
         self.sapling_balance = sapling_balance.into();
 
         if self.sapling_spend_count > 0 {
-            // Read anchor
-            // TODO: maybe move anchor to state field?
-            ok!(reader.read_exact(&mut self.sapling_anchor));
+            let mut anchor = [0u8; 32];
+            ok!(reader.read_exact(&mut anchor));
 
             // Init hashers
             ctx.hashers
                 .tx_compact_hasher
-                .init_with_perso(NU5_PARAM_SAPLING_SPENDS_COMPACT);
+                .init_with_perso(ZCASH_SAPLING_SPENDS_COMPACT_HASH_PERSONALIZATION);
             ctx.hashers
                 .tx_non_compact_hasher
-                .init_with_perso(NU5_PARAM_SAPLING_SPENDS_NONCOMPACT);
+                .init_with_perso(ZCASH_SAPLING_SPENDS_NONCOMPACT_HASH_PERSONALIZATION);
 
-            self.state = ParserState::ProcessSaplingSpends;
+            self.state = ParserState::ProcessSaplingSpends { anchor };
         } else if self.sapling_output_count > 0 {
             // No spends
             // Get empty sapling spends digest
             let sapling_spend = {
                 let mut sapling_spend = [0u8; 32];
                 let mut tmp_spend_hasher = Blake2b_256::new();
-                tmp_spend_hasher.init_with_perso(NU5_PARAM_SAPLING_SPENDS);
+                tmp_spend_hasher.init_with_perso(ZCASH_SAPLING_SPENDS_HASH_PERSONALIZATION);
                 ok!(tmp_spend_hasher.finalize(&mut sapling_spend));
 
                 sapling_spend
@@ -60,7 +59,7 @@ impl Parser {
             // Init outputs hasher
             ctx.hashers
                 .tx_compact_hasher
-                .init_with_perso(NU5_PARAM_SAPLING_OUTPUTS_COMPACT);
+                .init_with_perso(ZCASH_SAPLING_OUTPUTS_COMPACT_HASH_PERSONALIZATION);
 
             self.state = ParserState::ProcessSaplingOutputsCompact;
         } else {
@@ -74,6 +73,7 @@ impl Parser {
         &mut self,
         ctx: &mut ParserCtx<'_>,
         reader: &mut ByteReader<'_>,
+        anchor: [u8; 32],
     ) -> Result<(), ParserError> {
         info!(
             "Process sapling spends, remaining: {}",
@@ -90,30 +90,21 @@ impl Parser {
         }));
 
         // update non compact hash with anchor
-        ok!(ctx
-            .hashers
-            .tx_non_compact_hasher
-            .update(&self.sapling_anchor));
+        ok!(ctx.hashers.tx_non_compact_hasher.update(&anchor));
 
         // update compact hash with nullifier
-        ok!(ctx.hashers.tx_compact_hasher.update(
-            &{
-                let mut tmp = [0u8; 32];
-                ok!(reader.read_exact(&mut tmp));
-                tmp
-            }
-            .as_ref(),
-        ));
+        ok!(ctx.hashers.tx_compact_hasher.update(&{
+            let mut tmp = [0u8; 32];
+            ok!(reader.read_exact(&mut tmp));
+            tmp
+        }));
 
         // update non compact hash with rk
-        ok!(ctx.hashers.tx_non_compact_hasher.update(
-            &{
-                let mut tmp = [0u8; 32];
-                ok!(reader.read_exact(&mut tmp));
-                tmp
-            }
-            .as_ref(),
-        ));
+        ok!(ctx.hashers.tx_non_compact_hasher.update(&{
+            let mut tmp = [0u8; 32];
+            ok!(reader.read_exact(&mut tmp));
+            tmp
+        }));
 
         self.sapling_spend_parsed_count += 1;
 
@@ -128,7 +119,7 @@ impl Parser {
     pub fn parse_sapling_spends_hashing(
         &mut self,
         ctx: &mut ParserCtx<'_>,
-        reader: &mut ByteReader<'_>,
+        _reader: &mut ByteReader<'_>,
     ) -> Result<(), ParserError> {
         info!("Process sapling spends hashing");
 
@@ -155,7 +146,7 @@ impl Parser {
 
         // Initialize the sapling spend digest context
         let mut tmp_spend_hasher = Blake2b_256::new();
-        tmp_spend_hasher.init_with_perso(NU5_PARAM_SAPLING_SPENDS);
+        tmp_spend_hasher.init_with_perso(ZCASH_SAPLING_SPENDS_HASH_PERSONALIZATION);
         ok!(tmp_spend_hasher.update(&sapling_spend_compact_digest,));
         ok!(tmp_spend_hasher.update(&sapling_spend_non_compact_digest,));
 
@@ -171,7 +162,7 @@ impl Parser {
             // Init outputs hasher
             ctx.hashers
                 .tx_compact_hasher
-                .init_with_perso(NU5_PARAM_SAPLING_OUTPUTS_COMPACT);
+                .init_with_perso(ZCASH_SAPLING_OUTPUTS_COMPACT_HASH_PERSONALIZATION);
 
             self.state = ParserState::ProcessSaplingOutputsCompact;
         } else {
@@ -212,7 +203,7 @@ impl Parser {
             // Init memo hasher
             ctx.hashers
                 .tx_memo_hasher
-                .init_with_perso(NU5_PARAM_SAPLING_OUTPUTS_MEMO);
+                .init_with_perso(ZCASH_SAPLING_OUTPUTS_MEMOS_HASH_PERSONALIZATION);
 
             // memo_size = 512 each APDU will contain quarter of the memo
             self.state = ParserState::ProcessSaplingOutputsMemo {
@@ -248,7 +239,7 @@ impl Parser {
             // Init outputs non compact hasher
             ctx.hashers
                 .tx_non_compact_hasher
-                .init_with_perso(NU5_PARAM_SAPLING_OUTPUTS_NONCOMPACT);
+                .init_with_perso(ZCASH_SAPLING_OUTPUTS_NONCOMPACT_HASH_PERSONALIZATION);
 
             self.sapling_output_parsed_count = 0;
             self.state = ParserState::ProcessSaplingOutputsNonCompact;
@@ -298,43 +289,8 @@ impl Parser {
     pub fn parse_sapling_output_hashing(
         &mut self,
         ctx: &mut ParserCtx<'_>,
-        reader: &mut ByteReader<'_>,
+        _reader: &mut ByteReader<'_>,
     ) -> Result<(), ParserError> {
-        /*
-            // Finalize compact and noncompact sapling spend hashes
-            uint8_t saplingOutputCompactDigest[DIGEST_SIZE];
-            uint8_t saplingOutputMemoDigest[DIGEST_SIZE];
-            uint8_t saplingOutputNonCompactDigest[DIGEST_SIZE];
-
-            blake2b_256_final(&btchip_context_D.transactionHashCompact.blake2b, saplingOutputCompactDigest);
-            blake2b_256_final(&btchip_context_D.transactionHashMemo.blake2b, saplingOutputMemoDigest);
-            blake2b_256_final(&btchip_context_D.transactionHashNonCompact.blake2b, saplingOutputNonCompactDigest);
-
-            // Initialize the sapling output digest context
-            uint8_t saplingOutput[DIGEST_SIZE];
-            blake2b_256_init(&btchip_context_D.transactionHashFull.blake2b, (uint8_t *) NU5_PARAM_SAPLING_OUTPUTS);
-            blake2b_256_update(&btchip_context_D.transactionHashFull.blake2b, saplingOutputCompactDigest, sizeof(saplingOutputCompactDigest));
-            blake2b_256_update(&btchip_context_D.transactionHashFull.blake2b, saplingOutputMemoDigest, sizeof(saplingOutputMemoDigest));
-            blake2b_256_update(&btchip_context_D.transactionHashFull.blake2b, saplingOutputNonCompactDigest, sizeof(saplingOutputNonCompactDigest));
-            blake2b_256_final(&btchip_context_D.transactionHashFull.blake2b, saplingOutput);
-
-            blake2b_256_update(&btchip_context_D.transactionSaplingFull.blake2b, saplingOutput, sizeof(saplingOutput));
-
-            blake2b_256_update(&btchip_context_D.transactionSaplingFull.blake2b, btchip_context_D.saplingBalance, sizeof(btchip_context_D.saplingBalance));
-
-            if (btchip_context_D.orchardActionCount > 0) {
-                // init the orchard actions compact hash
-                blake2b_256_init(&btchip_context_D.transactionHashCompact.blake2b, (uint8_t *) NU5_PARAM_ORCHARD_ACTIONS_COMPACT);
-
-                btchip_context_D.transactionContext.orchardActionsRemaining = btchip_context_D.orchardActionCount;
-                btchip_context_D.transactionContext.transactionState =
-                    BTCHIP_TRANSACTION_PROCESS_ORCHARD_COMPACT;
-            } else {
-                btchip_context_D.transactionContext.transactionState =
-                    BTCHIP_TRANSACTION_PROCESS_EXTRA;
-            }
-
-        */
         info!("Finalize sapling outputs hashing");
 
         // Finalize compact, memo and noncompact sapling output hashes
@@ -370,7 +326,7 @@ impl Parser {
 
         // Initialize the sapling output digest context
         let mut tmp_output_hasher = Blake2b_256::new();
-        tmp_output_hasher.init_with_perso(NU5_PARAM_SAPLING_OUTPUTS);
+        tmp_output_hasher.init_with_perso(ZCASH_SAPLING_OUTPUTS_HASH_PERSONALIZATION);
 
         ok!(tmp_output_hasher.update(&sapling_output_compact_digest));
         ok!(tmp_output_hasher.update(&sapling_output_memo_digest));
@@ -389,8 +345,8 @@ impl Parser {
             .update(&self.sapling_balance.to_le_bytes()));
 
         if self.orchard_action_count > 0 {
-            // init the orchard actions compact hash
-
+            // TODO: init the orchard actions compact hash
+            // TODO: change state to process orchard actions
             todo!()
         } else {
             self.state = ParserState::ProcessExtra;
