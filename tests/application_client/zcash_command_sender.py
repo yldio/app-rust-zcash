@@ -125,10 +125,9 @@ class ZcashCommandSender:
         ) as response:
             yield response
 
-    @contextmanager
     def get_trusted_input(
         self, transaction: bytes, trusted_input_idx: int
-    ) -> Generator[None, None, None]:
+    )  -> RAPDU:
         chunks = split_tx_to_chunks_v5(transaction)
         # convert trusted-input index to 4 bytes big endian
         trusted_idx = pack(">I", trusted_input_idx)
@@ -143,14 +142,13 @@ class ZcashCommandSender:
             )
             p1 = P1.P1_MORE
 
-        with self.backend.exchange_async(
+        return self.backend.exchange(
             cla=CLA,
             ins=InsType.GET_TRUSTED_INPUT,
             p1=P1.P1_MORE,
             p2=P2.P2_NONE,
             data=chunks[-1],
-        ) as response:
-            yield response
+        )
 
     def _send_trusted_inputs_and_header(self, continue_hashing: bool):
         header = self.tx_chunks["header"]

@@ -80,8 +80,6 @@ impl Parser {
             self.sapling_spend_count - self.sapling_spend_parsed_count
         );
 
-        // TODO: read library hashing impl and fix comments below
-
         // update non compact hash with cv
         ok!(ctx.hashers.tx_non_compact_hasher.update(&{
             let mut tmp = [0u8; 32];

@@ -12,10 +12,7 @@ def test_trusted_input_transparent_v5_two_inputs(backend):
 
     client = ZcashCommandSender(backend)
 
-    with client.get_trusted_input(TX_BYTES, trusted_input_idx):
-        pass
-
-    resp = client.get_async_response().data
+    resp = client.get_trusted_input(TX_BYTES, trusted_input_idx).data
     txid, idx, amount, _, _ = unpack_trusted_input_response(resp)
 
     assert txid.hex() == "754d1a6d0c8e7bfaff9bb1d2f356db3475e60e27d27376f64ba0f21c23adbd80"
@@ -29,10 +26,7 @@ def test_trusted_input_transparent_v5_two_outputs(backend):
 
     client = ZcashCommandSender(backend)
 
-    with client.get_trusted_input(TX_BYTES, trusted_input_idx):
-        pass
-
-    resp = client.get_async_response().data
+    resp = client.get_trusted_input(TX_BYTES, trusted_input_idx).data
     txid, idx, amount, _, _ = unpack_trusted_input_response(resp)
 
     assert txid.hex() == "f5f79290d3dfe4e768aec837affe8eb9e46fbc82ef9dfdf2c62af1ad0b3878a3"
@@ -65,10 +59,7 @@ def test_trusted_input_sapling_v5_simple(backend):
 
     client = ZcashCommandSender(backend)
 
-    with client.get_trusted_input(TX_BYTES, trusted_input_idx):
-        pass
-
-    resp = client.get_async_response().data
+    resp = client.get_trusted_input(TX_BYTES, trusted_input_idx).data
     txid, idx, amount, _, _ = unpack_trusted_input_response(resp)
 
     assert txid.hex() == "e1360c957489515ddfb5c564962e2c8cb2dc3c651c4a219e25e0b5e569f49d33"
@@ -104,10 +95,7 @@ def test_trusted_input_sapling_v5_multi(backend):
 
     client = ZcashCommandSender(backend)
 
-    with client.get_trusted_input(TX_BYTES, trusted_input_idx):
-        pass
-
-    resp = client.get_async_response().data
+    resp = client.get_trusted_input(TX_BYTES, trusted_input_idx).data
     txid, idx, amount, _, _ = unpack_trusted_input_response(resp)
 
     assert txid.hex() == "35f812ce32a94bbd7679a7f4a71c08b9fb263462352157a5c87fa569ad1d7814"
