@@ -20,6 +20,7 @@ __pycache__/
 *.egg-info/
 .eggs/
 .python-version
+.venv/
 
 # Related to the Ledger VSCode extension
 # Virtual env for sideload (macOS and Windows)
@@ -34,3 +35,4 @@ tests/swap/.test_dependencies/app-ethereum/
 
 # VSCode
 /.vscode
+
