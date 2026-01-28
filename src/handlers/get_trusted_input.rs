@@ -35,7 +35,7 @@ pub fn handler_get_trusted_input(
     }
 
     ctx.parser
-        .parse_chunk(
+        .parse(
             &mut ParserCtx {
                 tx_state: &mut ctx.tx_signing_state,
                 tx_info: &mut ctx.tx_info,

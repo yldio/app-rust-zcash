@@ -1,25 +1,24 @@
 use alloc::vec::Vec;
-use core::{cmp, iter, mem};
-use ledger_device_sdk::hmac::HMACError;
+use core::{iter, mem};
 use zcash_primitives::transaction::sighash_v5::{
     ZCASH_TRANSPARENT_AMOUNTS_HASH_PERSONALIZATION, ZCASH_TRANSPARENT_INPUT_HASH_PERSONALIZATION,
     ZCASH_TRANSPARENT_SCRIPTS_HASH_PERSONALIZATION,
 };
 
-use core2::io::{Error as IoError, Read};
+use core2::io::Read;
 use ledger_device_sdk::hash::blake2::Blake2b_256;
-use ledger_device_sdk::hash::{HashError, HashInit};
+use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::hmac::{sha2::Sha2_256 as HmacSha256, HMACInit};
 use zcash_encoding::CompactSize;
 use zcash_primitives::encoding::ReadBytesExt;
 use zcash_primitives::transaction::txid::{
     ZCASH_HEADERS_HASH_PERSONALIZATION, ZCASH_OUTPUTS_HASH_PERSONALIZATION,
-    ZCASH_PREVOUTS_HASH_PERSONALIZATION, ZCASH_SEQUENCE_HASH_PERSONALIZATION,
-    ZCASH_TRANSPARENT_HASH_PERSONALIZATION, ZCASH_TX_PERSONALIZATION_PREFIX,
+    ZCASH_PREVOUTS_HASH_PERSONALIZATION, ZCASH_SAPLING_HASH_PERSONALIZATION,
+    ZCASH_SEQUENCE_HASH_PERSONALIZATION,
 };
 use zcash_primitives::transaction::TxVersion;
 use zcash_protocol::consensus::BranchId;
-use zcash_protocol::value::{BalanceError, Zatoshis};
+use zcash_protocol::value::Zatoshis;
 use zcash_transparent::address::Script;
 use zcash_transparent::bundle::OutPoint;
 
@@ -27,6 +26,8 @@ use crate::app_ui::sign::ui_display_tx;
 use crate::consts::{MAX_OUTPUTS_NUMBER, MAX_SCRIPT_SIZE, TRUSTED_INPUT_TOTAL_SIZE};
 use crate::handlers::sign_tx::{Hashers, TrustedInputInfo, TxInfo, TxOutput, TxSigningState};
 use crate::log::{debug, error, info};
+use crate::parser::compute::{finalize_signature_hash, finalize_signature_input_hash};
+use crate::parser::reader::ByteReader;
 use crate::settings::Settings;
 use crate::utils::blake2b_256_pers::{AsWriter, Blake2b256Personalization};
 use crate::utils::{
@@ -34,110 +35,17 @@ use crate::utils::{
     HexSlice,
 };
 use crate::AppSW;
+use error::ok;
+
+pub use error::{ParserError, ParserSourceError};
+
+mod compute;
+mod error;
+mod reader;
+mod sapling;
 
 // TODO: use personalization consts from protocol libraries
-const ZCASH_SAPLING_HASH_PERSONALIZATION: &[u8] = b"ZTxIdSaplingHash";
 const ZCASH_ORCHARD_HASH_PERSONALIZATION: &[u8] = b"ZTxIdOrchardHash";
-
-#[allow(unused)]
-#[derive(Debug)]
-pub enum ParserSourceError {
-    Io(IoError),
-    Hash(HashError),
-    Hmac(HMACError),
-    Balance(BalanceError),
-    Custom(&'static str),
-    AppSW(AppSW),
-    UserDenied,
-}
-
-impl From<IoError> for ParserSourceError {
-    fn from(e: IoError) -> Self {
-        ParserSourceError::Io(e)
-    }
-}
-
-impl From<HashError> for ParserSourceError {
-    fn from(e: HashError) -> Self {
-        ParserSourceError::Hash(e)
-    }
-}
-
-impl From<HMACError> for ParserSourceError {
-    fn from(e: HMACError) -> Self {
-        ParserSourceError::Hmac(e)
-    }
-}
-
-impl From<BalanceError> for ParserSourceError {
-    fn from(e: BalanceError) -> Self {
-        ParserSourceError::Balance(e)
-    }
-}
-
-impl From<&'static str> for ParserSourceError {
-    fn from(e: &'static str) -> Self {
-        ParserSourceError::Custom(e)
-    }
-}
-
-impl From<AppSW> for ParserSourceError {
-    fn from(e: AppSW) -> Self {
-        ParserSourceError::AppSW(e)
-    }
-}
-
-#[derive(Debug)]
-pub struct ParserError {
-    pub source: ParserSourceError,
-    #[allow(unused)]
-    pub file: &'static str,
-    #[allow(unused)]
-    pub line: u32,
-}
-
-impl ParserError {
-    #[track_caller]
-    pub fn from_str(reason: &'static str) -> ParserError {
-        ParserError {
-            source: reason.into(),
-            file: file!(),
-            line: line!(),
-        }
-    }
-
-    #[track_caller]
-    pub fn user() -> ParserError {
-        ParserError {
-            source: ParserSourceError::UserDenied,
-            file: file!(),
-            line: line!(),
-        }
-    }
-}
-
-macro_rules! ok {
-    ($expr:expr) => {{
-        match $expr {
-            Ok(v) => Ok(v),
-            Err(e) => Err(ParserError {
-                source: e.into(),
-                file: file!(),
-                line: line!(),
-            }),
-        }?
-    }};
-    ($expr:expr, $reason:literal) => {{
-        match $expr {
-            Ok(v) => Ok(v),
-            Err(()) => Err(ParserError {
-                source: $reason.into(),
-                file: file!(),
-                line: line!(),
-            }),
-        }?
-    }};
-}
 
 #[derive(Debug, Default, PartialEq)]
 pub enum ParserMode {
@@ -162,60 +70,22 @@ pub enum ParserState {
         remaining_size: usize,
     },
     OutputHashingDone,
+    ProcessSapling,
+    ProcessSaplingSpends {
+        anchor: [u8; 32],
+    },
+    ProcessSaplingSpendsHashing,
+    ProcessSaplingOutputsCompact,
+    ProcessSaplingOutputsMemo {
+        size: usize,
+        remaining_size: usize,
+    },
+    ProcessSaplingOutputsNonCompact,
+    ProcessSaplingOutputHashing,
     ProcessExtra,
     TransactionParsed,
     TransactionPresignReady,
     TransactionReadyToSign,
-}
-
-struct ByteReader<'b> {
-    buf: &'b [u8],
-    pos: usize,
-}
-
-impl<'b> ByteReader<'b> {
-    pub fn new(buf: &'b [u8]) -> Self {
-        ByteReader { buf, pos: 0 }
-    }
-
-    pub fn remaining_len(&self) -> usize {
-        self.buf.len() - self.pos
-    }
-
-    pub fn _remaining_debug(&self) {
-        debug!(
-            "Remaining bytes (len {}) {:X?}",
-            self.remaining_len(),
-            &self.buf[self.pos..]
-        );
-    }
-
-    fn remaining_slice(&self) -> &[u8] {
-        &self.buf[self.pos..]
-    }
-
-    fn skip(&mut self, n: usize) -> core2::io::Result<()> {
-        let remaining = self.buf.len() - self.pos;
-        if n > remaining {
-            return Err(core2::io::Error::new(
-                core2::io::ErrorKind::UnexpectedEof,
-                "not enough bytes to skip",
-            ));
-        }
-        self.pos += n;
-        Ok(())
-    }
-}
-
-impl Read for ByteReader<'_> {
-    fn read(&mut self, buf: &'_ mut [u8]) -> core2::io::Result<usize> {
-        let remaining = self.buf.len() - self.pos;
-        let to_read = cmp::min(remaining, buf.len());
-        buf[..to_read].copy_from_slice(&self.buf[self.pos..self.pos + to_read]);
-        self.pos += to_read;
-
-        Ok(to_read)
-    }
 }
 
 pub struct ParserCtx<'ctx> {
@@ -235,9 +105,13 @@ pub struct Parser {
     output_count: usize,
     output_parsed_count: usize,
 
-    sapling_spend_remaining: usize,
+    sapling_spend_count: usize,
+    sapling_spend_parsed_count: usize,
     sapling_output_count: usize,
+    sapling_output_parsed_count: usize,
     orchard_action_count: usize,
+
+    sapling_balance: i64,
 
     script_bytes: Vec<u8>,
 }
@@ -252,10 +126,13 @@ impl Parser {
             input_parsed_count: 0,
             output_count: 0,
             output_parsed_count: 0,
-            sapling_spend_remaining: 0,
+            sapling_spend_count: 0,
+            sapling_spend_parsed_count: 0,
             sapling_output_count: 0,
+            sapling_output_parsed_count: 0,
             orchard_action_count: 0,
 
+            sapling_balance: 0,
             script_bytes: Vec::new(),
         }
     }
@@ -272,7 +149,7 @@ impl Parser {
         self.state == ParserState::TransactionReadyToSign
     }
 
-    pub fn parse_chunk(&mut self, ctx: &mut ParserCtx<'_>, data: &[u8]) -> Result<(), ParserError> {
+    pub fn parse(&mut self, ctx: &mut ParserCtx<'_>, data: &[u8]) -> Result<(), ParserError> {
         let mut reader = ByteReader::new(data);
 
         while reader.remaining_len() > 0 {
@@ -298,6 +175,26 @@ impl Parser {
                 } => self.parse_output_script(ctx, &mut reader, size, remaining_size)?,
                 ParserState::OutputHashingDone => {
                     self.parse_output_hashing_done(ctx, &mut reader)?;
+                }
+                ParserState::ProcessSapling => self.parse_sapling(ctx, &mut reader)?,
+                ParserState::ProcessSaplingSpends { anchor } => {
+                    self.parse_sapling_spends(ctx, &mut reader, anchor)?
+                }
+                ParserState::ProcessSaplingSpendsHashing => {
+                    self.parse_sapling_spends_hashing(ctx, &mut reader)?
+                }
+                ParserState::ProcessSaplingOutputsCompact => {
+                    self.parse_sapling_outputs_compact(ctx, &mut reader)?
+                }
+                ParserState::ProcessSaplingOutputsMemo {
+                    size,
+                    remaining_size,
+                } => self.parse_sapling_outputs_memo(ctx, &mut reader, size, remaining_size)?,
+                ParserState::ProcessSaplingOutputsNonCompact => {
+                    self.parse_sapling_outputs_non_compact(ctx, &mut reader)?
+                }
+                ParserState::ProcessSaplingOutputHashing => {
+                    self.parse_sapling_output_hashing(ctx, &mut reader)?
                 }
                 ParserState::ProcessExtra => self.parse_process_extra(ctx, &mut reader)?,
                 ParserState::TransactionParsed
@@ -389,7 +286,11 @@ impl Parser {
 
         ctx.tx_info.total_amount = 0;
         self.input_count = input_count;
-        self.state = ParserState::WaitInput;
+        self.state = if self.input_count == 0 {
+            ParserState::InputHashingDone
+        } else {
+            ParserState::WaitInput
+        };
 
         Ok(())
     }
@@ -581,100 +482,19 @@ impl Parser {
         if self.input_count == self.input_parsed_count {
             info!("All inputs parsed");
 
-            if self.mode == ParserMode::Signature && ctx.tx_state.is_tx_parsed_once {
-                let mut txin_sig_digest = [0u8; 32];
-                ok!(ctx.hashers.prevouts_hasher.finalize(&mut txin_sig_digest));
-                info!("txin sig digest {}", HexSlice(&txin_sig_digest));
+            if self.mode == ParserMode::Signature {
+                if ctx.tx_state.is_tx_parsed_once {
+                    finalize_signature_hash(ctx)?;
 
-                // Compute transparent_sig_digest
-                let transparent_digest = {
-                    let mut hash = [0u8; 32];
+                    self.state = ParserState::TransactionReadyToSign;
+                } else {
+                    finalize_signature_input_hash(ctx)?;
 
-                    let mut hasher = Blake2b_256::default();
-                    hasher.init_with_perso(ZCASH_TRANSPARENT_HASH_PERSONALIZATION);
+                    self.state = ParserState::TransactionPresignReady;
 
-                    ok!(hasher.update(&[ctx.tx_info.sighash_type]));
-                    ok!(hasher.update(&ctx.tx_info.prevouts_hash));
-                    ok!(hasher.update(&ctx.tx_info.amounts_hash));
-                    ok!(hasher.update(&ctx.tx_info.scripts_hash));
-                    ok!(hasher.update(&ctx.tx_info.sequence_hash));
-                    ok!(hasher.update(&ctx.tx_info.outputs_hash));
-                    ok!(hasher.update(&txin_sig_digest));
-
-                    ok!(hasher.finalize(&mut hash));
-                    hash
-                };
-                debug!("Transparent hash: {}", HexSlice(&transparent_digest));
-
-                // Compute sapling_digest. Assume no Sapling spends or outputs are present
-                let sapling_digest = {
-                    let mut sapling_digest = [0u8; 32];
-                    ctx.hashers
-                        .sapling_hasher
-                        .init_with_perso(ZCASH_SAPLING_HASH_PERSONALIZATION);
-                    ok!(ctx.hashers.sapling_hasher.finalize(&mut sapling_digest));
-                    sapling_digest
-                };
-
-                // Compute orchard_digest. Assume there are no Orchard actions
-                let orchard_digest = {
-                    let mut orchard_digest = [0u8; 32];
-                    ctx.hashers
-                        .orchard_hasher
-                        .init_with_perso(ZCASH_ORCHARD_HASH_PERSONALIZATION);
-                    ok!(ctx.hashers.orchard_hasher.finalize(&mut orchard_digest));
-                    orchard_digest
-                };
-
-                let branch_id = ctx.tx_info.branch_id.expect("should be set at this point");
-
-                // Start to compute signature_digest
-                let mut personalization = [0u8; 16];
-                personalization[..12].copy_from_slice(ZCASH_TX_PERSONALIZATION_PREFIX);
-                personalization[12..].copy_from_slice(&u32::from(branch_id).to_le_bytes());
-
-                let hasher = &mut ctx.hashers.tx_full_hasher;
-                hasher.init_with_perso(&personalization);
-
-                ok!(hasher.update(&ctx.tx_info.header_digest));
-                ok!(hasher.update(&transparent_digest));
-                ok!(hasher.update(&sapling_digest));
-                ok!(hasher.update(&orchard_digest));
-
-                self.state = ParserState::TransactionReadyToSign;
-
-                return Ok(());
-            }
-
-            if self.mode == ParserMode::Signature && !ctx.tx_state.is_tx_parsed_once {
-                ok!(ctx
-                    .hashers
-                    .prevouts_hasher
-                    .finalize(&mut ctx.tx_info.prevouts_hash));
-                info!("prevout hash {}", HexSlice(&ctx.tx_info.prevouts_hash));
-
-                ok!(ctx
-                    .hashers
-                    .sequence_hasher
-                    .finalize(&mut ctx.tx_info.sequence_hash));
-                info!("sequence hash {}", HexSlice(&ctx.tx_info.sequence_hash));
-
-                ok!(ctx
-                    .hashers
-                    .amounts_hasher
-                    .finalize(&mut ctx.tx_info.amounts_hash));
-                info!("amounts hash {}", HexSlice(&ctx.tx_info.amounts_hash));
-
-                ok!(ctx
-                    .hashers
-                    .scripts_hasher
-                    .finalize(&mut ctx.tx_info.scripts_hash));
-                info!("scripts hash {}", HexSlice(&ctx.tx_info.scripts_hash));
-
-                self.state = ParserState::TransactionPresignReady;
-
-                // Skip traling bytes if any
-                ok!(reader.skip(reader.remaining_len()));
+                    // Skip traling bytes if any
+                    ok!(reader.advance(reader.remaining_len()));
+                }
 
                 return Ok(());
             }
@@ -803,15 +623,21 @@ impl Parser {
     ) -> Result<(), ParserError> {
         info!("Output hashing done");
 
-        self.sapling_spend_remaining = ok!(CompactSize::read_t(&mut *reader));
+        self.sapling_spend_count = ok!(CompactSize::read_t(&mut *reader));
         self.sapling_output_count = ok!(CompactSize::read_t(&mut *reader));
         self.orchard_action_count = ok!(CompactSize::read_t(&mut *reader));
 
-        info!("Sapling spend remaining: {}", self.sapling_spend_remaining);
+        info!("Sapling spend remaining: {}", self.sapling_spend_count);
         info!("Sapling output count: {}", self.sapling_output_count);
         info!("Orchard action count: {}", self.orchard_action_count);
 
-        self.state = ParserState::ProcessExtra;
+        self.state = if self.sapling_spend_count > 0 || self.sapling_output_count > 0 {
+            ParserState::ProcessSapling
+        } else if self.orchard_action_count > 0 {
+            todo!()
+        } else {
+            ParserState::ProcessExtra
+        };
 
         Ok(())
     }
@@ -846,114 +672,7 @@ impl Parser {
         ctx.trusted_input_info.is_input_processed = true;
         self.state = ParserState::TransactionParsed;
 
-        self.compute_tx_id(ctx)?;
-
-        Ok(())
-    }
-
-    fn compute_tx_id(&mut self, ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
-        let tx_version = ctx
-            .tx_info
-            .tx_version
-            .expect("tx_version should be set at this point");
-        let branch_id = ctx
-            .tx_info
-            .branch_id
-            .expect("branch_id should be set at this point");
-
-        if ctx.tx_info.tx_version == Some(TxVersion::V5) {
-            let prevouts_hash = {
-                let mut hash = [0u8; 32];
-                ok!(ctx.hashers.prevouts_hasher.finalize(&mut hash));
-                hash
-            };
-            debug!("Prevouts hash: {}", HexSlice(&prevouts_hash));
-
-            let sequence_hash = {
-                let mut hash = [0u8; 32];
-                ok!(ctx.hashers.sequence_hasher.finalize(&mut hash));
-                hash
-            };
-            debug!("Sequence hash: {}", HexSlice(&sequence_hash));
-
-            let outputs_hash = {
-                let mut hash = [0u8; 32];
-                ok!(ctx.hashers.outputs_hasher.finalize(&mut hash));
-                hash
-            };
-            debug!("Outputs hash: {}", HexSlice(&outputs_hash));
-
-            let header_hash = {
-                let mut hash = [0u8; 32];
-
-                let mut hasher = Blake2b_256::default();
-                hasher.init_with_perso(ZCASH_HEADERS_HASH_PERSONALIZATION);
-
-                ok!(tx_version.write(&mut hasher.as_writer()));
-
-                ok!(hasher.update(&u32::from(branch_id).to_le_bytes()));
-
-                ok!(hasher.update(&ctx.tx_info.locktime.to_le_bytes()));
-                ok!(hasher.update(&ctx.tx_info.expiry_height.to_le_bytes()));
-
-                ok!(hasher.finalize(&mut hash));
-                hash
-            };
-            debug!("Header hash: {}", HexSlice(&header_hash));
-
-            let transparent_hash = {
-                let mut hash = [0u8; 32];
-
-                let mut hasher = Blake2b_256::default();
-                hasher.init_with_perso(ZCASH_TRANSPARENT_HASH_PERSONALIZATION);
-
-                ok!(hasher.update(&prevouts_hash));
-                ok!(hasher.update(&sequence_hash));
-                ok!(hasher.update(&outputs_hash));
-
-                ok!(hasher.finalize(&mut hash));
-                hash
-            };
-            debug!("Transparent hash: {}", HexSlice(&transparent_hash));
-
-            let sapling_hash = {
-                let mut hash = [0u8; 32];
-                ok!(ctx.hashers.sapling_hasher.finalize(&mut hash));
-                hash
-            };
-            debug!("Sapling hash: {}", HexSlice(&sapling_hash));
-
-            let orchard_hash = {
-                let mut hash = [0u8; 32];
-                ok!(ctx.hashers.orchard_hasher.finalize(&mut hash));
-                hash
-            };
-            debug!("Orchard hash: {}", HexSlice(&orchard_hash));
-
-            let mut personalization = [0u8; 16];
-            personalization[..12].copy_from_slice(ZCASH_TX_PERSONALIZATION_PREFIX);
-            personalization[12..].copy_from_slice(&u32::from(branch_id).to_le_bytes());
-
-            let mut hasher = Blake2b_256::default();
-            hasher.init_with_perso(&personalization);
-
-            ok!(hasher.update(&header_hash));
-            ok!(hasher.update(&transparent_hash));
-            ok!(hasher.update(&sapling_hash));
-            ok!(hasher.update(&orchard_hash));
-
-            ok!(hasher.finalize(&mut ctx.trusted_input_info.tx_id));
-
-            debug!(
-                "Transaction ID hash: {}",
-                HexSlice(&ctx.trusted_input_info.tx_id)
-            );
-        } else {
-            error!("TX ID computation for versions other than V5 is not implemented");
-            return Err(ParserError::from_str(
-                "TX ID computation for versions other than V5 is not implemented",
-            ));
-        }
+        compute::tx_id(ctx)?;
 
         Ok(())
     }

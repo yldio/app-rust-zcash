@@ -59,9 +59,9 @@ class Transaction:
 #
 # NOTE: lockTime and expiryHeight are, for some reason,
 # serialized at the end of the transaction data
-# (as if it were a v4 transaction format).
+# (as if it was a v4 transaction format).
 def split_tx_to_chunks_v5(buf: bytes) -> list[bytes]:
-    # pylint: disable=R0914
+    # pylint: disable=R0914 disable=R0915
 
     i = 0
     chunks = []
@@ -105,12 +105,52 @@ def split_tx_to_chunks_v5(buf: bytes) -> list[bytes]:
     # Sapling and Orchard fields
     sapling_start = i
     sap_sp, i = read_compactsize(buf, i)
-    assert sap_sp == 0, "Sapling spends not supported in this chunking function!"
     sap_out,i = read_compactsize(buf, i)
-    assert sap_out == 0, "Sapling outputs not supported in this chunking function!"
     orch, i   = read_compactsize(buf, i)
     assert orch == 0, "Orchard actions not supported in this chunking function!"
     chunks.append(buf[sapling_start:i])
+
+    print(f"Sapling spends: {sap_sp}, outputs: {sap_out}")
+
+    # Sapling data (if any)
+    if sap_sp > 0 or sap_out > 0:
+        # valueBalance
+        balance_start = i
+        i += 8
+
+        if sap_sp > 0:
+            # anchor
+            i += 32
+
+        # balance (+ anchor if present) must be in a single chunk
+        chunks.append(buf[balance_start:i])
+
+        # Sapling spends
+        for _ in range(sap_sp):
+            spend_start = i
+            i += 32 + 32 + 32  # cv + nullifier + rk
+            chunks.append(buf[spend_start:i])
+
+        # Sapling outputs: compact part
+        for _ in range(sap_out):
+            compact_start = i
+            i += 32 + 32 + 52  # cmu + ephemeral_key + enc_ciphertext[..52]
+            chunks.append(buf[compact_start:i])
+
+        # Sapling outputs: memo data (512 bytes per output), split into 128-byte chunks
+        memo_remaining = sap_out * 512
+        while memo_remaining > 0:
+            memo_chunk = min(128, memo_remaining)
+            chunks.append(buf[i:i + memo_chunk])
+            i += memo_chunk
+            memo_remaining -= memo_chunk
+
+        # Sapling outputs: non-compact part
+        for _ in range(sap_out):
+            non_compact_start = i
+            i += 32 + 16 + 80
+            chunks.append(buf[non_compact_start:i])
+
 
     assert i == len(buf), "Transaction splitting did not consume all bytes!"
 

@@ -28,10 +28,7 @@ def test_sign_tx_v5_simple(backend, scenario_navigator):
     client = ZcashCommandSender(backend)
 
     # Get txid
-    with client.get_trusted_input(PREVOUT_TX_BYTES, trusted_input_idx):
-        pass
-
-    trusted_input = client.get_async_response().data
+    trusted_input = client.get_trusted_input(PREVOUT_TX_BYTES, trusted_input_idx).data
 
     response = client.get_public_key(path=path).data
     public_key, _, _ = unpack_get_public_key_response(response)
@@ -79,10 +76,7 @@ def test_sign_tx_v5_change(backend, scenario_navigator):
     client = ZcashCommandSender(backend)
 
     # Get txid
-    with client.get_trusted_input(PREVOUT_TX_BYTES, trusted_input_idx):
-        pass
-
-    trusted_input = client.get_async_response().data
+    trusted_input = client.get_trusted_input(PREVOUT_TX_BYTES, trusted_input_idx).data
 
     response = client.get_public_key(path=path).data
     public_key, _, _ = unpack_get_public_key_response(response)
