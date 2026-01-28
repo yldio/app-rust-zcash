@@ -112,8 +112,6 @@ pub struct Tx<'a> {
 
 /// Transaction context holding state between APDU chunks.
 pub struct TxContext<'a> {
-    raw_tx: Vec<u8>,
-    path: Bip32Path,
     review_finished: bool,
 
     pub is_extra_header_data_set: bool,
@@ -136,8 +134,7 @@ impl<'a> TxContext<'a> {
     // Constructor
     pub fn new(parser_mode: ParserMode) -> TxContext<'a> {
         TxContext {
-            raw_tx: Vec::new(),
-            path: Default::default(),
+
             review_finished: false,
 
             tx_info: Default::default(),
@@ -166,15 +163,11 @@ impl<'a> TxContext<'a> {
     // Implement reset for TxInfo
     #[allow(unused)]
     fn reset(&mut self) {
-        self.raw_tx.clear();
-        self.path = Default::default();
         self.review_finished = false;
     }
 
     pub fn new_with_swap(params: &'a CreateTxParams,parser_mode: ParserMode) -> TxContext<'a> {
         TxContext {
-            raw_tx: Vec::new(),
-            path: Default::default(),
             review_finished: false,
             home: Default::default(),
             swap_params: Some(params),
