@@ -28,15 +28,11 @@ use ledger_device_sdk::hash::blake2::Blake2b_256;
 use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::io::Comm;
 
-use ledger_device_sdk::nbgl::NbglHomeAndSettings;
 use ledger_device_sdk::libcall::swap::CreateTxParams;
-
-
-
+use ledger_device_sdk::nbgl::NbglHomeAndSettings;
 
 use zcash_primitives::transaction::TxVersion;
 use zcash_protocol::consensus::BranchId;
-
 
 #[derive(Default)]
 pub struct Hashers {
@@ -96,8 +92,7 @@ pub struct TxSigningState {
     pub is_tx_parsed_once: bool,
 }
 
-
-/// This struct will be needed wen implementing SWAP later. 
+/// This struct will be needed wen implementing SWAP later.
 /// TODO: rm this comment
 pub struct Tx<'a> {
     #[allow(dead_code)]
@@ -134,7 +129,6 @@ impl<'a> TxContext<'a> {
     // Constructor
     pub fn new(parser_mode: ParserMode) -> TxContext<'a> {
         TxContext {
-
             review_finished: false,
 
             tx_info: Default::default(),
@@ -157,7 +151,7 @@ impl<'a> TxContext<'a> {
 
     // Get review status
     #[allow(dead_code)]
-    pub fn finished(&self) -> bool { 
+    pub fn finished(&self) -> bool {
         self.review_finished
     }
     // Implement reset for TxInfo
@@ -166,7 +160,7 @@ impl<'a> TxContext<'a> {
         self.review_finished = false;
     }
 
-    pub fn new_with_swap(params: &'a CreateTxParams,parser_mode: ParserMode) -> TxContext<'a> {
+    pub fn new_with_swap(params: &'a CreateTxParams, parser_mode: ParserMode) -> TxContext<'a> {
         TxContext {
             review_finished: false,
             home: Default::default(),
@@ -174,16 +168,13 @@ impl<'a> TxContext<'a> {
             is_extra_header_data_set: false,
             tx_signing_state: Default::default(),
             tx_info: Default::default(),
-            trusted_input_info:Default::default(),
-            hashers:Default::default(),
+            trusted_input_info: Default::default(),
+            hashers: Default::default(),
             parser: Parser::new(parser_mode),
-            output_parser:OutputParser::new(),
+            output_parser: OutputParser::new(),
         }
     }
-
-
 }
-
 
 pub fn handler_hash_input_start(
     comm: &mut Comm,
@@ -411,5 +402,3 @@ fn compute_signature_and_append(
 
     Ok(())
 }
-
-

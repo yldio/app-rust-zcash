@@ -396,7 +396,6 @@ pub fn check_bip44_compliance(path: &Bip32Path, is_change_path: bool) -> bool {
     true
 }
 
-
 /// Compute Keccak256 hash of a public key for address derivation.
 ///
 /// This is used for Ethereum-style address computation:

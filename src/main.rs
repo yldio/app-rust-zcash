@@ -58,11 +58,15 @@ use crate::{
         INS_GET_FIRMWARE_VERSION, INS_GET_TRUSTED_INPUT, INS_GET_WALLET_PUBLIC_KEY,
         INS_HASH_INPUT_FINALIZE_FULL, INS_HASH_INPUT_START, INS_HASH_SIGN, INS_SIGN_MESSAGE,
         P2_CONTINUE_HASHING, P2_OPERATION_TYPE_SAPLING, ZCASH_CLA,
-    }, handlers::{
+    },
+    handlers::{
         get_trusted_input::handler_get_trusted_input,
         sign_msg::handler_sign_msg,
         sign_tx::{handler_hash_input_finalize_full, handler_hash_input_start, handler_hash_sign},
-    }, log::{debug, error}, parser::ParserMode, settings::Settings
+    },
+    log::{debug, error},
+    parser::ParserMode,
+    settings::Settings,
 };
 
 pub const P1_FIRST: u8 = 0x00;
@@ -81,7 +85,7 @@ pub enum AppSW {
     ReferencedDataNotFound = 0x6A88,
     FileAlreadyExists = 0x6A89,
     SwapWithoutTrustedInputs = 0x6A8A,
-    WrongP1P2 = 0x6B00, // Normally we should use StatusWord::BadP1P2(0x6e02)
+    WrongP1P2 = 0x6B00,       // Normally we should use StatusWord::BadP1P2(0x6e02)
     InsNotSupported = 0x6D00, // Normally we should use StatusWord::BadIns(0x6e01)
     ClaNotSupported = StatusWords::BadCla as u16,
     MemoryProblem = 0x9240,
@@ -106,7 +110,7 @@ pub enum AppSW {
     TechnicalProblem = 0x6F00,
     VersionParsingFail = 0x6F01,
     TxParsingFail = 0x6F02,
-    Ok = StatusWords::Ok as u16 ,
+    Ok = StatusWords::Ok as u16,
 }
 
 impl From<AppSW> for Reply {
@@ -183,14 +187,15 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
     if tx_ctx.swap_params.is_some() {
         return;
     }
-    #[cfg_attr(any(target_os = "nanox", target_os = "nanosplus"), allow(unused_variables))]
+    #[cfg_attr(
+        any(target_os = "nanox", target_os = "nanosplus"),
+        allow(unused_variables)
+    )]
     let (show_status, status_type) = match (ins, status) {
         (Instruction::GetPubkey { display: true }, AppSW::Deny | AppSW::Ok) => {
             (true, StatusType::Address)
         }
-        (Instruction::HashFinalizeFull { .. }, AppSW::Deny | AppSW::Ok)
-            if tx_ctx.finished() =>
-        {
+        (Instruction::HashFinalizeFull { .. }, AppSW::Deny | AppSW::Ok) if tx_ctx.finished() => {
             (true, StatusType::Transaction)
         }
         (_, _) => (false, StatusType::Transaction),
@@ -258,9 +263,8 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
 
     debug!("App started");
 
-
     let mut tx_ctx = if let Some(params) = swap_params {
-        TxContext::new_with_swap(params,ParserMode::Signature) // NOTE: not sure in mode
+        TxContext::new_with_swap(params, ParserMode::Signature) // NOTE: not sure in mode
     } else {
         TxContext::new(ParserMode::Signature) // NOTE: not sure in mode
     };
@@ -276,7 +280,6 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
         let ins: Instruction = comm.next_command();
 
         debug!("Received apdu {:?}", ins);
-
 
         let _status = match handle_apdu(&mut comm, &ins, &mut tx_ctx) {
             Ok(()) => {

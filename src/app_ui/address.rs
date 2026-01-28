@@ -15,15 +15,12 @@
  *  limitations under the License.
  *****************************************************************************/
 
+use ledger_device_sdk::nbgl::NbglGlyph;
 use ledger_device_sdk::{include_gif, nbgl::NbglAddressReview};
-use ledger_device_sdk::nbgl:: NbglGlyph;
 
 use crate::AppSW;
 
-
 pub fn ui_display_pk(addr: &str) -> Result<bool, AppSW> {
-   
-
     // Load glyph from file with include_gif macro. Creates an NBGL compatible glyph.
     #[cfg(target_os = "apex_p")]
     const FERRIS: NbglGlyph = NbglGlyph::from_include(include_gif!("glyphs/zcash_48px.png", NBGL));
@@ -38,5 +35,3 @@ pub fn ui_display_pk(addr: &str) -> Result<bool, AppSW> {
         .review_title("Verify ZCASH address")
         .show(addr))
 }
-
-

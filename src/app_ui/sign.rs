@@ -21,7 +21,6 @@ use ledger_device_sdk::nbgl::{Field, NbglReview};
 
 use crate::handlers::sign_tx::TxOutput;
 
-
 fn format_zec_amount(amount: u64) -> String {
     // ZEC has 8 decimal places
     let whole = amount / ZEC_DECIMALS_DIV;
