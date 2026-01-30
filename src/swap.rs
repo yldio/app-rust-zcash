@@ -43,8 +43,10 @@
 
 use arrayvec::ArrayString;
 use core::fmt::Write;
+use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::{
     ecc::{Secp256k1, SeedDerive},
+    hash::sha3::Keccak256,
     libcall::{
         self,
         string::uint256_to_float,
@@ -58,7 +60,6 @@ use ledger_device_sdk::{
 };
 
 use crate::handlers::sign_tx::Tx;
-use crate::utils::get_address_hash_from_pubkey;
 use alloc::{format, string::ToString};
 
 /// Application-specific swap error codes.
@@ -449,3 +450,31 @@ fn get_printable_amount(params: &PrintableAmountParams) -> ArrayString<40> {
     printable
 }
 // --8<-- [end:get_printable_amount]
+
+/// Compute Keccak256 hash of a public key for address derivation.
+///
+/// This is used for Ethereum-style address computation:
+/// 1. Take uncompressed pubkey (65 bytes)
+/// 2. Skip first byte (0x04 marker)
+/// 3. Hash the remaining 64 bytes with Keccak256
+/// 4. Take last 20 bytes as address
+///
+/// # Used by
+///
+/// - `handler_get_public_key`: For displaying address to user
+/// - `swap::check_address`: For verifying address ownership
+///
+/// # Arguments
+///
+/// * `pubkey` - 65-byte uncompressed secp256k1 public key
+///
+/// # Returns
+///
+/// 32-byte Keccak256 hash (last 20 bytes are the Ethereum address)
+pub fn get_address_hash_from_pubkey(pubkey: &[u8; 65]) -> [u8; 32] {
+    let mut keccak256 = Keccak256::new();
+    let mut address: [u8; 32] = [0u8; 32];
+    // Hash pubkey excluding first byte (0x04 uncompressed marker)
+    let _ = keccak256.hash(&pubkey[1..], &mut address);
+    address
+}

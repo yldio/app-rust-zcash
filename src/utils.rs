@@ -4,7 +4,7 @@ use crate::log::{debug, error};
 
 pub mod blake2b_256_pers;
 use crate::AppSW;
-use ledger_device_sdk::hash::{sha3::Keccak256, HashInit};
+
 
 /// BIP32 derivation path stored as a vector of u32 components.
 ///

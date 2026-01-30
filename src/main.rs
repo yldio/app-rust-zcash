@@ -65,7 +65,6 @@ use crate::{
         sign_tx::{handler_hash_input_finalize_full, handler_hash_input_start, handler_hash_sign},
     },
     log::{debug, error},
-    parser::ParserMode,
     settings::Settings,
 };
 
