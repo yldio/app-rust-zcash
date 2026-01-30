@@ -23,6 +23,6 @@ pub fn ui_display_pk(addr: &str) -> Result<bool, AppSW> {
     // Display the address confirmation screen.
     Ok(NbglAddressReview::new()
         .glyph(load_glyph())
-        .review_title("Verify ZEC address")
+        .review_title("Verify address")
         .show(addr))
 }

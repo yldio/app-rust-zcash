@@ -1,14 +1,15 @@
 use alloc::{string::String, vec::Vec};
 
-use crate::{
-    log::{debug, error},
-    AppSW,
-};
+use crate::log::{debug, error};
 
 pub mod blake2b_256_pers;
+use crate::AppSW;
 
-/// BIP32 path stored as an array of [`u32`].
-#[derive(Default)]
+/// BIP32 derivation path stored as a vector of u32 components.
+///
+/// Each component represents one level in the path (e.g., m/44'/1'/0'/0/0 has 5 components).
+/// Hardened derivation is indicated by setting the high bit (>= 0x80000000).
+#[derive(Default, Debug)]
 pub struct Bip32Path(Vec<u32>);
 
 impl AsRef<[u32]> for Bip32Path {
@@ -20,15 +21,25 @@ impl AsRef<[u32]> for Bip32Path {
 impl TryFrom<&[u8]> for Bip32Path {
     type Error = AppSW;
 
-    /// Constructs a [`Bip32Path`] from a given byte array.
+    /// Constructs a [`Bip32Path`] from APDU-encoded bytes.
     ///
-    /// This method will return an error in the following cases:
-    /// - the input array is empty,
-    /// - the number of bytes in the input array is not a multiple of 4,
+    /// # Format
     ///
-    /// # Arguments
+    /// - First byte: Number of path components (e.g., 5 for m/44'/1'/0'/0/0)
+    /// - Remaining bytes: Big-endian u32 components (4 bytes each)
     ///
-    /// * `data` - Encoded BIP32 path. First byte is the length of the path, as encoded by ragger.
+    /// # Example
+    ///
+    /// For path m/44'/1'/0'/0/0:
+    /// ```text
+    /// [0x05, 0x8000002C, 0x80000001, 0x80000000, 0x00000000, 0x00000000]
+    /// ```
+    ///
+    /// # Note
+    ///
+    /// This uses `Vec` for dynamic allocation, which is fine for normal APDU handlers
+    /// but CANNOT be used in swap's `check_address` or `get_printable_amount` due to
+    /// BSS memory sharing with the Exchange app.
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
         // Check data length
         if data.is_empty() // At least the length byte is required
@@ -54,10 +65,9 @@ pub struct PubKeyWithCC {
 
 pub fn derive_public_key(path: &Bip32Path) -> Result<PubKeyWithCC, AppSW> {
     use ledger_device_sdk::ecc::{Secp256k1, SeedDerive};
-
     let (k, cc) = Secp256k1::derive_from(path.as_ref());
-    let pk = k.public_key().map_err(|_| AppSW::IncorrectData)?;
 
+    let pk = k.public_key().map_err(|_| AppSW::IncorrectData)?;
     let code = cc.ok_or(AppSW::IncorrectData)?;
     Ok(PubKeyWithCC {
         public_key: pk.pubkey,

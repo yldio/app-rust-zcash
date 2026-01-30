@@ -27,6 +27,8 @@ use ledger_device_sdk::ecc::{Secp256k1, SeedDerive as _};
 use ledger_device_sdk::hash::blake2::Blake2b_256;
 use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::io::Comm;
+
+use ledger_device_sdk::libcall::swap::CreateTxParams;
 use ledger_device_sdk::nbgl::NbglHomeAndSettings;
 
 use zcash_primitives::transaction::TxVersion;
@@ -90,7 +92,21 @@ pub struct TxSigningState {
     pub is_tx_parsed_once: bool,
 }
 
-pub struct TxContext {
+/// This struct will be needed wen implementing SWAP later.
+/// TODO: rm this comment
+pub struct Tx<'a> {
+    #[allow(dead_code)]
+    nonce: u64,
+    #[allow(unused)]
+    pub coin: &'a str,
+    pub value: u64,
+    pub to: [u8; 20],
+    #[allow(unused)]
+    pub memo: &'a str,
+}
+
+/// Transaction context holding state between APDU chunks.
+pub struct TxContext<'a> {
     review_finished: bool,
 
     pub is_extra_header_data_set: bool,
@@ -103,10 +119,15 @@ pub struct TxContext {
     pub home: NbglHomeAndSettings,
     pub parser: Parser,
     pub output_parser: OutputParser,
+    /// Swap parameters if running in swap mode.
+    /// Used to validate the transaction against the Exchange's request.
+    pub swap_params: Option<&'a CreateTxParams>,
 }
 
-impl TxContext {
-    pub fn new(parser_mode: ParserMode) -> TxContext {
+// Implement constructor for TxInfo with default values
+impl<'a> TxContext<'a> {
+    // Constructor
+    pub fn new(parser_mode: ParserMode) -> TxContext<'a> {
         TxContext {
             review_finished: false,
 
@@ -120,6 +141,7 @@ impl TxContext {
             home: Default::default(),
             parser: Parser::new(parser_mode),
             output_parser: OutputParser::new(),
+            swap_params: None,
         }
     }
 
@@ -127,8 +149,29 @@ impl TxContext {
         self.trusted_input_info.input_idx = idx.into();
     }
 
-    pub fn review_finished(&self) -> bool {
+    // Get review status
+    pub fn is_review_finished(&self) -> bool {
         self.review_finished
+    }
+    // Implement reset for TxInfo
+    #[allow(unused)]
+    fn reset(&mut self) {
+        self.review_finished = false;
+    }
+
+    pub fn new_with_swap(params: &'a CreateTxParams, parser_mode: ParserMode) -> TxContext<'a> {
+        TxContext {
+            review_finished: false,
+            home: Default::default(),
+            swap_params: Some(params),
+            is_extra_header_data_set: false,
+            tx_signing_state: Default::default(),
+            tx_info: Default::default(),
+            trusted_input_info: Default::default(),
+            hashers: Default::default(),
+            parser: Parser::new(parser_mode),
+            output_parser: OutputParser::new(),
+        }
     }
 }
 

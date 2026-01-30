@@ -9,10 +9,12 @@ ledger_device_sdk = "1.*"
 ledger_secure_sdk_sys = "1.*"
 include_gif = "1.*"
 core2 = { version = "0.3.0", default-features = false }
-hex = { version = "0.4.3", default-features = false, features = ["serde", "alloc"] }
-numtoa = "0.2.4"
-arrayvec = { version = "0.7.6", default-features = false}
-bs58 = { version="0.5.1", default-features = false }
+hex = { version = "0.4.3", default-features = false, features = [
+    "serde",
+    "alloc",
+] }
+arrayvec = { version = "0.7.6", default-features = false }
+bs58 = { version = "0.5.1", default-features = false }
 
 zcash_primitives = { git = "https://github.com/Fingolfin69/librustzcash.git", branch = "bn-zcash-device-app", default-features = false }
 zcash_protocol = { git = "https://github.com/Fingolfin69/librustzcash.git", branch = "bn-zcash-device-app", default-features = false }
@@ -64,4 +66,6 @@ icon = "icons/flex_app_zcash.gif"
 icon = "icons/apex_app_zcash.gif"
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("apex_p", "stax", "flex", "nanos", "nanox", "nanosplus"))'] }
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(target_os, values("apex_p", "stax", "flex", "nanos", "nanox", "nanosplus"))',
+] }
