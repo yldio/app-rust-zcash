@@ -107,10 +107,7 @@ def split_tx_to_chunks_v5(buf: bytes) -> list[bytes]:
     sap_sp, i = read_compactsize(buf, i)
     sap_out,i = read_compactsize(buf, i)
     orch, i   = read_compactsize(buf, i)
-    assert orch == 0, "Orchard actions not supported in this chunking function!"
     chunks.append(buf[sapling_start:i])
-
-    print(f"Sapling spends: {sap_sp}, outputs: {sap_out}")
 
     # Sapling data (if any)
     if sap_sp > 0 or sap_out > 0:
@@ -151,6 +148,32 @@ def split_tx_to_chunks_v5(buf: bytes) -> list[bytes]:
             i += 32 + 16 + 80
             chunks.append(buf[non_compact_start:i])
 
+    # Orchard data (if any)
+    if orch > 0:
+        # Orchard actions: compact part
+        for _ in range(orch):
+            compact_start = i
+            i += 32 + 32 + 32 + 52  # nullifier + cmx + ephemeral_key + enc_ciphertext[..52]
+            chunks.append(buf[compact_start:i])
+
+        # Orchard memos (512 bytes per action), split into 128-byte chunks
+        memo_remaining = orch * 512
+        while memo_remaining > 0:
+            memo_chunk = min(128, memo_remaining)
+            chunks.append(buf[i:i + memo_chunk])
+            i += memo_chunk
+            memo_remaining -= memo_chunk
+
+        # Orchard actions: non-compact part
+        for _ in range(orch):
+            non_compact_start = i
+            i += 32 + 32 + 16 + 80  # nullifier + cmx + out_ciphertext + zkproof
+            chunks.append(buf[non_compact_start:i])
+
+        # Orchard digest data (flags + valueBalance + anchor)
+        digest_start = i
+        i += 1 + 8 + 32
+        chunks.append(buf[digest_start:i])
 
     assert i == len(buf), "Transaction splitting did not consume all bytes!"
 
