@@ -4,6 +4,9 @@ from pathlib import Path
 
 from ragger.conftest import configuration
 
+from ledger_app_clients.exchange.navigation_helper import ExchangeNavigationHelper
+
+
 # from ledger_app_clients.exchange.navigation_helper import ExchangeNavigationHelper
 
 ###########################
@@ -33,9 +36,9 @@ def snapshots_path():
     # Use the current file's directory as the base path
     return Path(__file__).parent.resolve()
 
-# @pytest.fixture(scope="function")
-# def exchange_navigation_helper(backend, navigator, snapshots_path, test_name):
-#     return ExchangeNavigationHelper(backend=backend, navigator=navigator, snapshots_path=snapshots_path, test_name=test_name)
+@pytest.fixture(scope="function")
+def exchange_navigation_helper(backend, navigator, snapshots_path, test_name):
+    return ExchangeNavigationHelper(backend=backend, navigator=navigator, snapshots_path=snapshots_path, test_name=test_name)
 
 # Pytest is trying to do "smart" stuff and reorders tests using parametrize by alphabetical order of parameter
 # This breaks the backend scope optim. We disable this

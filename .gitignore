@@ -31,7 +31,7 @@ target-rust-analyzer/
 
 # Helper script git clone
 tests/swap/.test_dependencies/app-exchange/
-tests/swap/.test_dependencies/app-ethereum/
+tests/swap/.test_dependencies/app-etherium/
 
 # VSCode
 /.vscode

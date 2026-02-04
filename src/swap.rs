@@ -43,7 +43,6 @@
 
 use arrayvec::ArrayString;
 use core::fmt::Write;
-use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::{
     ecc::{Secp256k1, SeedDerive},
     hash::sha3::Keccak256,
@@ -52,14 +51,23 @@ use ledger_device_sdk::{
         string::uint256_to_float,
         swap::{
             self, CheckAddressParams, CreateTxParams, PrintableAmountParams, SwapError,
-            SwapErrorCommonCode,
+            SwapErrorCommonCode, SwapResult,
         },
         SwapAppErrorCodeTrait,
     },
-    testing::debug_print,
+    testing::{debug_print, to_hex},
 };
+use ledger_device_sdk::{hash::HashInit, libcall::LibCallCommand};
 
-use crate::handlers::sign_tx::Tx;
+use crate::{
+    consts::{ZEC_DECIMALS, ZEC_TICKER},
+    handlers::sign_tx::Tx,
+    log::debug,
+    utils::{
+        compress_public_key, derive_public_key, public_key_to_address_base58, Bip32Path,
+        PubKeyWithCC,
+    },
+};
 use alloc::{format, string::ToString};
 
 /// Application-specific swap error codes.
@@ -250,33 +258,33 @@ pub fn swap_main(arg0: u32) {
     let cmd = libcall::get_command(arg0);
 
     match cmd {
-        libcall::LibCallCommand::SwapCheckAddress => {
+        LibCallCommand::SwapCheckAddress => {
             debug_print("Received SwapCheckAddress command\n");
             let mut params = swap::get_check_address_params(arg0);
             let res = check_address(&params);
             // Return to Exchange, forwarding the result
-            swap::swap_return(swap::SwapResult::CheckAddressResult(&mut params, res));
+            swap::swap_return(SwapResult::CheckAddressResult(&mut params, res));
         }
-        libcall::LibCallCommand::SwapGetPrintableAmount => {
+        LibCallCommand::SwapGetPrintableAmount => {
             debug_print("Received SwapGetPrintableAmount command\n");
             let mut params = swap::get_printable_amount_params(arg0);
             let amount_str = get_printable_amount(&params);
             // Return to Exchange, forwarding the result
-            swap::swap_return(swap::SwapResult::PrintableAmountResult(
+            swap::swap_return(SwapResult::PrintableAmountResult(
                 &mut params,
                 amount_str.as_str(),
             ));
         }
-        libcall::LibCallCommand::SwapSignTransaction => {
+        LibCallCommand::SwapSignTransaction => {
             debug_print("Received SwapSignTransaction command\n");
             let mut params = swap::sign_tx_params(arg0);
             // Call normal_main with Swap parameter set to enter the special Swap flow
             let success = crate::normal_main(Some(&params));
             // Return to Exchange, forwarding the result
             if success {
-                swap::swap_return(swap::SwapResult::CreateTxResult(&mut params, 1));
+                swap::swap_return(SwapResult::CreateTxResult(&mut params, 1));
             } else {
-                swap::swap_return(swap::SwapResult::CreateTxResult(&mut params, 0));
+                swap::swap_return(SwapResult::CreateTxResult(&mut params, 0));
             }
         }
     }
@@ -314,9 +322,11 @@ pub fn swap_main(arg0: u32) {
 /// * `0` if addresses don't match or error occurred
 fn check_address(params: &CheckAddressParams) -> i32 {
     // Parse BIP32 derivation path
-    // Note: params.dpath_len is the NUMBER of u32 path components (e.g., 5 for m/44'/1'/0'/0/0),
+    // Note: params.dpath_len is the NUMBER of u32 path components (e.g., 5 for m/44'/133'/0'/0/0),
     // not the byte length. Each component is 4 bytes (big-endian u32).
+    debug_print("ENTERED_CHECK_ADDRESS\n");
     let path_bytes = &params.dpath[..params.dpath_len * 4];
+    debug_hex("path bytes ", path_bytes);
 
     // Use stack-allocated array (no heap!) to store parsed path
     let mut path: [u32; 10] = [0; 10]; // Max 10 derivation levels
@@ -345,6 +355,20 @@ fn check_address(params: &CheckAddressParams) -> i32 {
             return 0;
         }
     };
+    debug_hex("PUBLIC_KEY", pubkey.as_slice());
+
+    let compressed_pubkey = match compress_public_key(pubkey.as_slice()) {
+        Ok(pkey) => pkey,
+        Err(_) => return 0,
+    };
+
+    debug_hex("COMPRESSED_PKEY", compressed_pubkey.as_slice());
+
+    let address_str: [u8; 32] = match public_key_to_address_base58(&compressed_pubkey, false) {
+        Ok(address_str) => address_str.into_bytes().try_into().unwrap(),
+        Err(_) => return 0,
+    };
+    debug!("address_str {:?}", address_str);
 
     // Compute address: Keccak256 hash of pubkey (excluding first byte 0x04)
     let address_hash = get_address_hash_from_pubkey(&pubkey);
@@ -380,6 +404,7 @@ fn check_address(params: &CheckAddressParams) -> i32 {
         0 // Failure
     }
 }
+
 // --8<-- [end:check_address]
 
 // --8<-- [start:get_printable_amount]
@@ -431,17 +456,12 @@ fn get_printable_amount(params: &PrintableAmountParams) -> ArrayString<40> {
     debug_print("Amount bytes (u256): ");
     debug_hex("", &amount_u256);
 
-    // CRAB uses 9 decimals (similar to SUI, which also uses 9 decimals)
-    // For production: parse decimals from params.coin_config
-    const CRAB_DECIMALS: usize = 9;
-    const CRAB_TICKER: &str = "CRAB";
-
     // Use SDK helper to format amount with decimals
-    let amount_str = uint256_to_float(&amount_u256, CRAB_DECIMALS);
+    let amount_str = uint256_to_float(&amount_u256, ZEC_DECIMALS as usize);
 
-    // Format as "CRAB {value}" using stack-allocated ArrayString
-    let mut printable = ArrayString::<40>::new();
-    let _ = write!(&mut printable, "{} {}", CRAB_TICKER, amount_str.as_str());
+    // Format as "ZEC {value}" using stack-allocated ArrayString
+    let mut printable: ArrayString<40> = ArrayString::<40>::new();
+    let _ = write!(&mut printable, "{} {}", ZEC_TICKER, amount_str.as_str());
 
     debug_print("Formatted amount: ");
     debug_print(printable.as_str());
@@ -470,7 +490,7 @@ fn get_printable_amount(params: &PrintableAmountParams) -> ArrayString<40> {
 ///
 /// # Returns
 ///
-/// 32-byte Keccak256 hash (last 20 bytes are the Ethereum address)
+/// 32-byte Keccak256 hash (last 20 bytes are the Zcash address)
 pub fn get_address_hash_from_pubkey(pubkey: &[u8; 65]) -> [u8; 32] {
     let mut keccak256 = Keccak256::new();
     let mut address: [u8; 32] = [0u8; 32];

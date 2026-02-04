@@ -44,6 +44,8 @@ lto = 'fat'
 default = ["ledger_device_sdk/nano_nbgl", "log_debug"]
 log_debug = ["ledger_device_sdk/debug"]
 
+test_pubkey = []
+
 [package.metadata.ledger]
 curve = ["secp256k1"]
 flags = "0"

@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+pub const ZEC_TICKER: &str = "ZEC";
 
 pub const ZEC_DECIMALS: u32 = 8;
 pub const ZEC_DECIMALS_DIV: u64 = 10u64.pow(ZEC_DECIMALS);
