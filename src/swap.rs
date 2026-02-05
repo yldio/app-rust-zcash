@@ -59,7 +59,7 @@ use ledger_device_sdk::{
 use ledger_device_sdk::{hash::HashInit, libcall::LibCallCommand};
 
 use crate::{
-    consts::{ZEC_DECIMALS, ZEC_TICKER},
+    consts::{ZCASH_DECIMALS, ZCASH_TICKER},
     handlers::sign_tx::Tx,
     log::debug,
     utils::{compress_public_key, public_key_to_address_base58, TRANSPARENT_ADDRESS_B58_LEN},
@@ -124,6 +124,8 @@ pub enum SwapAppErrorCode {
     PathTooLong = 0x03,
     FailedToSerializeAddress = 0x04,
     FailedToCompressPublicKey = 0x05,
+    #[allow(unused)]
+    KeyDerivationFailed = 0x06,
 }
 
 pub trait ErrorText {
@@ -138,6 +140,7 @@ impl ErrorText for SwapAppErrorCode {
             SwapAppErrorCode::DestinationDecodeFail => "Destination decode fail",
             SwapAppErrorCode::FailedToSerializeAddress => "Failed to serialize address",
             SwapAppErrorCode::FailedToCompressPublicKey => " Failed to compress public key",
+            SwapAppErrorCode::KeyDerivationFailed => "Key derivation failed",
             SwapAppErrorCode::Default => "Default ",
         }
     }
@@ -388,8 +391,7 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
             match k.public_key() {
                 Ok(pk) => pk.pubkey,
                 Err(_) => {
-                    debug_print("Key derivation failed\n");
-                    return 0;
+                    return Err(SwapAppErrorCode::KeyDerivationFailed);
                 }
             }
         }
@@ -505,11 +507,11 @@ fn get_printable_amount(
     debug_hex("", &amount_u256);
 
     // Use SDK helper to format amount with decimals
-    let amount_str = uint256_to_float(&amount_u256, ZEC_DECIMALS as usize);
+    let amount_str = uint256_to_float(&amount_u256, ZCASH_DECIMALS as usize);
 
     // Format as "ZEC {value}" using stack-allocated ArrayString
     let mut printable: ArrayString<40> = ArrayString::<40>::new();
-    let _ = write!(&mut printable, "{} {}", ZEC_TICKER, amount_str.as_str());
+    let _ = write!(&mut printable, "{} {}", ZCASH_TICKER, amount_str.as_str());
 
     debug_print("Formatted amount: ");
     debug_print(printable.as_str());
