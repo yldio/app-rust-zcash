@@ -62,7 +62,7 @@ use crate::{
     consts::{ZCASH_DECIMALS, ZCASH_TICKER},
     handlers::sign_tx::Tx,
     log::debug,
-    utils::{compress_public_key, public_key_to_address_base58, TRANSPARENT_ADDRESS_B58_LEN},
+    utils::{compress_public_key, public_key_to_address_base58},
 };
 use alloc::{format, string::ToString};
 
@@ -372,27 +372,14 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
     // Derive public key from path using the same logic as get_public_key handler
 
     let pubkey = {
-        #[cfg(feature = "test_pubkey")]
-        {
-            [
-                0x04, 0x4c, 0xca, 0x8f, 0xad, 0x49, 0x6a, 0xa5, 0x04, 0x0a, 0x00, 0xa7, 0xeb, 0x2f,
-                0x5c, 0xc3, 0xb8, 0x53, 0x76, 0xd8, 0x8b, 0xa1, 0x47, 0xa7, 0xd7, 0x05, 0x4a, 0x99,
-                0xc6, 0x40, 0x56, 0x18, 0x87, 0xfe, 0x17, 0xa0, 0x96, 0xe3, 0x6c, 0x3b, 0x52, 0x3b,
-                0x24, 0x4f, 0x3e, 0x2f, 0xf7, 0xf8, 0x40, 0xae, 0x26, 0xc4, 0xe7, 0x7a, 0xd3, 0xbc,
-                0x73, 0x9a, 0xf5, 0xde, 0x6f, 0x2d, 0x77, 0xa7, 0xb6,
-            ]
-        }
-        #[cfg(not(feature = "test_pubkey"))]
-        {
-            use ledger_device_sdk::ecc::Secp256k1;
-            use ledger_device_sdk::ecc::SeedDerive;
+        use ledger_device_sdk::ecc::Secp256k1;
+        use ledger_device_sdk::ecc::SeedDerive;
 
-            let (k, _) = Secp256k1::derive_from(&path[..params.dpath_len]);
-            match k.public_key() {
-                Ok(pk) => pk.pubkey,
-                Err(_) => {
-                    return Err(SwapAppErrorCode::KeyDerivationFailed);
-                }
+        let (k, _) = Secp256k1::derive_from(&path[..params.dpath_len]);
+        match k.public_key() {
+            Ok(pk) => pk.pubkey,
+            Err(_) => {
+                return Err(SwapAppErrorCode::KeyDerivationFailed);
             }
         }
     };
@@ -405,15 +392,15 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
 
     debug_hex("COMPRESSED_PKEY", compressed_pubkey.as_slice());
 
-    let address_bytes: [u8; TRANSPARENT_ADDRESS_B58_LEN] =
-        match public_key_to_address_base58(&compressed_pubkey, false) {
-            Ok(b) => b,
-            Err(_) => return Err(SwapAppErrorCode::FailedToSerializeAddress),
-        };
+    let address_bytes = match public_key_to_address_base58(&compressed_pubkey, false) {
+        Ok(b) => b,
+        Err(_) => return Err(SwapAppErrorCode::FailedToSerializeAddress),
+    };
 
-    let address_base58 = str::from_utf8(&address_bytes)
-        .unwrap() // todo handle error
-        ;
+    let address_base58 = match str::from_utf8(&address_bytes) {
+        Ok(addr) => addr,
+        Err(_) => return Err(SwapAppErrorCode::FailedToSerializeAddress),
+    };
     debug!("address_string: {}", &address_base58);
 
     // Compute address: Keccak256 hash of pubkey (excluding first byte 0x04)
@@ -425,32 +412,30 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
     // a hex string. This is a quirk of the C API - the Exchange sends binary address
     // bytes, but they're read as ASCII characters.
     // Example: byte 0x04 becomes ASCII '0' (0x30) and '4' (0x34) = "04" in the string
-    let _ref_hex = match core::str::from_utf8(&params.ref_address[..params.ref_address_len]) {
+    let ref_hex = match core::str::from_utf8(&params.ref_address[..params.ref_address_len]) {
         Ok(s) => s,
         Err(_) => return Err(SwapAppErrorCode::FailedToSerializeAddress),
     };
 
-    // Convert our derived address to hex string for comparison
-    // Using ArrayString (stack-allocated) to avoid heap allocation
-    let mut our_hex = ArrayString::<40>::new(); // 20 bytes * 2 hex chars
-    for b in address {
-        let _ = write!(&mut our_hex, "{:02x}", b);
-    }
-
-    // !!!!!!!!!!!!!!!!!!! STUB! ALWAYS RETURNS 0 WO CHECKING ADDRESS
-    // // Compare hex strings
-    // if our_hex.as_str() == ref_hex {
-    //     debug_print("Check address successful, derived and received addresses match\n");
-    //     1 // Success
-    // } else {
-    //     debug_print("Derived and received addresses do NOT match\n");
-    //     debug_hex("Derived address: ", address);
-    //     debug_print("Reference (hex): ");
-    //     debug_print(ref_hex);
-    //     debug_print("\n");
-    //     0 // Failure
+    // // Convert our derived address to hex string for comparison
+    // // Using ArrayString (stack-allocated) to avoid heap allocation
+    // let mut our_hex = ArrayString::<40>::new(); // 20 bytes * 2 hex chars
+    // for b in address {
+    //     let _ = write!(&mut address, "{:02x}", b);
     // }
-    Ok(true)
+
+    // Compare hex strings
+    if address_base58 == ref_hex {
+        debug_print("Check address successful, derived and received addresses match\n");
+        Ok(true) // Success
+    } else {
+        debug_print("Derived and received addresses do NOT match\n");
+        debug_hex("Derived address: ", address);
+        debug_print("Reference (hex): ");
+        debug_print(ref_hex);
+        debug_print("\n");
+        Ok(false) // Failure
+    }
 }
 
 // --8<-- [end:check_address]

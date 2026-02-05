@@ -142,6 +142,8 @@ pub fn public_key_to_address_base58(
     public_key: &[u8],
     is_hashed: bool,
 ) -> Result<[u8; TRANSPARENT_ADDRESS_B58_LEN], AppSW> {
+    // buffer for deriving address
+    // PREFIX(2 bytes) + HASH160 of Public_key(20 bytes)+ checksum (4 bytes)
     let mut buf = [0u8; 26];
 
     // For Zcash, the address is the HASH160 of the public key

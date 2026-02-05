@@ -14,15 +14,15 @@ class ZcashTests(ExchangeTestRunner):
     # The coin configuration of our currency. Replace by your own
     currency_configuration = cal.ZCASH_CURRENCY_CONFIGURATION
     # A valid template address of a supposed trade partner.
-    valid_destination_1 = "t1KVhvpor9RJrenB6UpmeeoN3NzrnYRCwBD" # FIXME: incorrect
+    valid_destination_1 = "t1MSQFN2D2Tv7a2EQwsXHXXUc1hVeTJMR8m" # FIXME: incorrect
     # A memo to use associated with the destination address if applicable.
     valid_destination_memo_1 = ""
     # A second valid template address of a supposed trade partner.
-    valid_destination_2 = "t1KVhvpor9RJrenB6UpmeeoN3NzrnYRCwBD" # FIXME: incorrect
+    valid_destination_2 = "t1NNh42d2omDRtdBryQGtedE5sRFmzEMuBw" # FIXME: incorrect
     # A second memo to use associated with the destination address if applicable.
     valid_destination_memo_2 = ""
     # The address of the Speculos seed on the ZCASH_PATH.
-    valid_refund = "fd2095a37e72be2cd575d18fe8f16e78c51eafa3" # FIXME: incorrect
+    valid_refund = "t1LBsxhHpmugntmxBVBNh6MSvq2CmUE6g9X"
     valid_refund_memo = ""
 
     # Values we ask the ExchangeTestRunner to use in the test setup
