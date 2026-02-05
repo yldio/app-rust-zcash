@@ -58,7 +58,7 @@ pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppS
     let address_str = str::from_utf8(&bytes).map_err(|_| AppSW::ExecutionError)?;
     debug!("address_str {:?}", address_str);
     // Display address on device if requested
-    if display && !ui_display_pk(&address_str)? {
+    if display && !ui_display_pk(address_str)? {
         return Err(AppSW::Deny);
     }
 
