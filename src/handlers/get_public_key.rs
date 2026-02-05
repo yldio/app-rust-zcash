@@ -53,10 +53,12 @@ pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppS
     let public_key = &public_key[..public_key_len];
     debug!("public_key {:?}", public_key);
     let comp_public_key = compress_public_key(public_key)?;
-    let address_str = public_key_to_address_base58(&comp_public_key, false)?;
+    let bytes = public_key_to_address_base58(&comp_public_key, false)?;
+    debug!("bytes collected{:?}", &bytes);
+    let address_str = str::from_utf8(&bytes).map_err(|_| AppSW::ExecutionError)?;
     debug!("address_str {:?}", address_str);
     // Display address on device if requested
-    if display && !ui_display_pk(&address_str)? {
+    if display && !ui_display_pk(address_str)? {
         return Err(AppSW::Deny);
     }
 

@@ -1,7 +1,5 @@
 #[cfg(feature = "log_debug")]
 use core::fmt::Write;
-#[cfg(feature = "log_debug")]
-use ledger_device_sdk::testing::debug_print;
 
 #[cfg(feature = "log_debug")]
 #[allow(clippy::upper_case_acronyms)]
@@ -14,9 +12,11 @@ impl Write for DBG {
         // Dunno why the copy is required, might be some pic issue as this is going straight to
         // assembly.
         for c in s.chars() {
+            use ledger_device_sdk::log;
+
             let mut qq = ArrayString::<1>::new();
             qq.push(c);
-            debug_print(qq.as_str());
+            log::debug!("{}", qq.as_str());
         }
         Ok(())
     }

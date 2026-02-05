@@ -14,7 +14,7 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *****************************************************************************/
-use crate::{app_ui::load_glyph, consts::ZEC_DECIMALS_DIV, AppSW};
+use crate::{app_ui::load_glyph, consts::ZCASH_DECIMALS_DIV, AppSW};
 
 use alloc::{format, string::String, vec::Vec};
 use ledger_device_sdk::nbgl::{Field, NbglReview};
@@ -23,8 +23,8 @@ use crate::handlers::sign_tx::TxOutput;
 
 fn format_zec_amount(amount: u64) -> String {
     // ZEC has 8 decimal places
-    let whole = amount / ZEC_DECIMALS_DIV;
-    let fractional = amount % ZEC_DECIMALS_DIV;
+    let whole = amount / ZCASH_DECIMALS_DIV;
+    let fractional = amount % ZCASH_DECIMALS_DIV;
     format!("ZEC {}.{:08}", whole, fractional)
 }
 

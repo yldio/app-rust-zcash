@@ -2,6 +2,8 @@ use alloc::{string::String, vec::Vec};
 
 use crate::log::{debug, error};
 
+pub const TRANSPARENT_ADDRESS_B58_LEN: usize = 35;
+
 pub mod blake2b_256_pers;
 use crate::AppSW;
 
@@ -133,7 +135,12 @@ const P2PKH_PREFIX: [u8; 2] = [0x1C, 0xB8];
 // T-address P2PKH prefix (testnet)
 const _P2PKH_PREFIX: [u8; 2] = [0x1D, 0x25];
 
-pub fn public_key_to_address_base58(public_key: &[u8], is_hashed: bool) -> Result<String, AppSW> {
+pub fn public_key_to_address_base58(
+    public_key: &[u8],
+    is_hashed: bool,
+) -> Result<[u8; TRANSPARENT_ADDRESS_B58_LEN], AppSW> {
+    // buffer for deriving address
+    // PREFIX(2 bytes) + HASH160 of Public_key(20 bytes)+ checksum (4 bytes)
     let mut buf = [0u8; 26];
 
     // For Zcash, the address is the HASH160 of the public key
@@ -150,16 +157,13 @@ pub fn public_key_to_address_base58(public_key: &[u8], is_hashed: bool) -> Resul
     let checksum = compute_checksum(&buf[0..22]);
     buf[22..26].copy_from_slice(&checksum);
 
-    let mut address_base58 = String::new();
-    let _ = bs58::encode(&buf[..26])
-        .onto(&mut address_base58)
-        .map_err(|_| {
-            error!("Base58 encoding failed");
-            AppSW::IncorrectData
-        })?;
+    let mut address_base58 = [0u8; TRANSPARENT_ADDRESS_B58_LEN];
+    let _written = bs58::encode(&buf[..26])
+        .onto(&mut address_base58[..])
+        .map_err(|_| AppSW::IncorrectData)?;
 
-    debug!("Address Base58: {}", address_base58);
-
+    //transparent addresses begin with "t" and are followed by 34 alphanumeric characters
+    debug!("address_base58 {:?}", &address_base58);
     Ok(address_base58)
 }
 
@@ -339,7 +343,12 @@ pub fn get_address_from_output_script(script: &[u8]) -> Result<String, AppSW> {
     address[..VERSION_SIZE].copy_from_slice(&version);
     address[VERSION_SIZE..].copy_from_slice(&script[ADDRESS_OFFSET..ADDRESS_OFFSET + 20]);
 
-    let address_base58 = public_key_to_address_base58(&address, true)?;
+    let bytes: [u8; TRANSPARENT_ADDRESS_B58_LEN] = public_key_to_address_base58(&address, true)?;
+    debug!("address_bytes: {:?}", &bytes);
+    let address_base58 = str::from_utf8(&bytes)
+        .map_err(|_| AppSW::ExecutionError)?
+        .into();
+    debug!("address_string: {}", &address_base58);
 
     Ok(address_base58)
 }

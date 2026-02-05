@@ -1,7 +1,8 @@
 #![allow(dead_code)]
+pub const ZCASH_TICKER: &str = "ZEC";
 
-pub const ZEC_DECIMALS: u32 = 8;
-pub const ZEC_DECIMALS_DIV: u64 = 10u64.pow(ZEC_DECIMALS);
+pub const ZCASH_DECIMALS: u32 = 8;
+pub const ZCASH_DECIMALS_DIV: u64 = 10u64.pow(ZCASH_DECIMALS);
 
 pub const MAX_SCRIPT_SIZE: usize = 1024 * 2;
 pub const MAX_OUTPUTS_NUMBER: usize = 8;

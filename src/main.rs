@@ -76,6 +76,7 @@ pub const FINALIZE_P1_CHANGEINFO: u8 = 0xFF;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppSW {
     PinRemainingAttempts = 0x63C0,
+    ExecutionError = 0x6400,
     WrongApduLength = 0x6700, // Normally we should use StatusWord::BadLen(0x6e03)
     CommandIncompatibleFileStructure = 0x6981,
     SecurityStatusNotSatisfied = StatusWords::NothingReceived as u16,
