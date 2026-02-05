@@ -1,9 +1,6 @@
 use alloc::{string::String, vec::Vec};
 
-use crate::{
-    log::{debug, error},
-    swap::debug_hex,
-};
+use crate::log::{debug, error};
 
 pub const TRANSPARENT_ADDRESS_B58_LEN: usize = 35;
 
@@ -347,7 +344,7 @@ pub fn get_address_from_output_script(script: &[u8]) -> Result<String, AppSW> {
     address[VERSION_SIZE..].copy_from_slice(&script[ADDRESS_OFFSET..ADDRESS_OFFSET + 20]);
 
     let bytes: [u8; TRANSPARENT_ADDRESS_B58_LEN] = public_key_to_address_base58(&address, true)?;
-    debug_hex("address_bytes: ", &bytes);
+    debug!("address_bytes: {:?}", &bytes);
     let address_base58 = str::from_utf8(&bytes)
         .map_err(|_| AppSW::ExecutionError)?
         .into();

@@ -54,14 +54,13 @@ use ledger_device_sdk::{
         },
         SwapAppErrorCodeTrait,
     },
-    testing::debug_print,
 };
 use ledger_device_sdk::{hash::HashInit, libcall::LibCallCommand};
 
 use crate::{
     consts::{ZCASH_DECIMALS, ZCASH_TICKER},
     handlers::sign_tx::Tx,
-    log::debug,
+    log::{self, debug},
     utils::{compress_public_key, public_key_to_address_base58},
 };
 use alloc::{format, string::ToString};
@@ -157,7 +156,7 @@ pub fn check_swap_params(
     params: &CreateTxParams,
     tx: &Tx,
 ) -> Result<(), SwapError<SwapAppErrorCode>> {
-    debug_print("Swap mode detected\n");
+    debug!("Swap mode detected");
 
     // Validate amount
     // Parse amount (u64 from big-endian bytes, right aligned in 16-byte buffer)
@@ -173,9 +172,9 @@ pub fn check_swap_params(
 
     //  --8<-- [start:SwapError_example]
     if tx.value != swap_amount {
-        debug_print("Swap amount mismatch\n");
-        debug_u64("Tx: ", tx.value);
-        debug_u64("Swap: ", swap_amount);
+        debug!("Swap amount mismatch\n");
+        debug!("Tx: {:?}", tx.value);
+        debug!("Swap: {:?}", swap_amount);
         // Error detected, we return the error with detailed message in common SDK defined format
         return Err(SwapError::with_message(
             SwapErrorCommonCode::ErrorWrongAmount,
@@ -198,7 +197,7 @@ pub fn check_swap_params(
 
     let mut swap_dest = [0u8; 20];
     if hex::decode_to_slice(dest_hex, &mut swap_dest).is_err() {
-        debug_print("Swap dest hex decode fail\n");
+        debug!("Swap dest hex decode fail\n");
         return Err(SwapError::with_message(
             SwapErrorCommonCode::ErrorWrongDestination,
             SwapAppErrorCode::DestinationDecodeFail,
@@ -207,9 +206,9 @@ pub fn check_swap_params(
     }
 
     if tx.to != swap_dest {
-        debug_print("Swap destination mismatch\n");
-        debug_hex("Tx: ", &tx.to);
-        debug_hex("Swap: ", &swap_dest);
+        debug!("Swap destination mismatch\n");
+        debug!("Tx: {:?}", &tx.to);
+        debug!("Swap: {:?}", &swap_dest);
         // Only build hex strings for error message (not on happy path)
         let tx_hex = hex::encode(tx.to);
         let swap_hex = hex::encode(swap_dest);
@@ -220,29 +219,10 @@ pub fn check_swap_params(
         ));
     }
 
-    debug_print("Swap validation success, bypassing UI\n");
+    debug!("Swap validation success, bypassing UI\n");
     Ok(())
 }
 //  --8<-- [end:check_swap_params]
-
-/// Helper function to print u64 for debugging.
-pub fn debug_u64(label: &str, val: u64) {
-    let mut buf = ArrayString::<64>::new();
-    let _ = writeln!(&mut buf, "{}{}", label, val);
-    debug_print(buf.as_str());
-}
-
-/// Helper function to print hex-encoded bytes for debugging.
-/// Uses stack-allocated buffer to avoid BSS writes.
-pub fn debug_hex(label: &str, data: &[u8]) {
-    debug_print(label);
-    let mut buf = ArrayString::<140>::new();
-    for b in data {
-        let _ = write!(&mut buf, "{:02x}", b);
-    }
-    let _ = writeln!(&mut buf);
-    debug_print(buf.as_str());
-}
 
 // --8<-- [start:swap_main]
 /// Main entry point when app is called as a library by the Exchange app.
@@ -256,21 +236,21 @@ pub fn debug_hex(label: &str, data: &[u8]) {
 /// - `SwapGetPrintableAmount`: Format amounts/fees for display
 /// - `SwapSignTransaction`: Sign the final transaction
 pub fn swap_main(arg0: u32) {
-    debug_print("swap_main called\n");
+    debug!("swap_main called\n");
     let cmd = libcall::get_command(arg0);
 
     match cmd {
         LibCallCommand::SwapCheckAddress => {
-            debug_print("Received SwapCheckAddress command\n");
+            debug!("Received SwapCheckAddress command\n");
             let mut params = swap::get_check_address_params(arg0);
             check_address(&params)
                 .map(|res| {
                     swap::swap_return(SwapResult::CheckAddressResult(&mut params, res as i32))
                 })
-                .unwrap_or_else(|e| debug_print(&format!("{:?}", e)));
+                .unwrap_or_else(|e| debug!("Swap error: {:?}", e));
         }
         LibCallCommand::SwapGetPrintableAmount => {
-            debug_print("Received SwapGetPrintableAmount command\n");
+            debug!("Received SwapGetPrintableAmount command\n");
             let mut params = swap::get_printable_amount_params(arg0);
             get_printable_amount(&params)
                 .map(|amount_str| {
@@ -279,10 +259,10 @@ pub fn swap_main(arg0: u32) {
                         amount_str.as_str(),
                     ))
                 })
-                .unwrap_or_else(|e| debug_print(&format!("{:?}", e)));
+                .unwrap_or_else(|e| debug!("Swap error: {:?}", e));
         }
         LibCallCommand::SwapSignTransaction => {
-            debug_print("Received SwapSignTransaction command\n");
+            debug!("Received SwapSignTransaction command\n");
             let mut params = swap::sign_tx_params(arg0);
             // Call normal_main with Swap parameter set to enter the special Swap flow
             let success = crate::normal_main(Some(&params));
@@ -330,9 +310,9 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
     // Parse BIP32 derivation path
     // Note: params.dpath_len is the NUMBER of u32 path components (e.g., 5 for m/44'/133'/0'/0/0),
     // not the byte length. Each component is 4 bytes (big-endian u32).
-    debug_print("ENTERED_CHECK_ADDRESS\n");
+    debug!("ENTERED_CHECK_ADDRESS\n");
     let path_bytes = &params.dpath[..params.dpath_len * 4];
-    debug_hex("path bytes ", path_bytes);
+    debug!("path bytes {:?}", path_bytes);
 
     // Use stack-allocated array (no heap!) to store parsed path
     let mut path: [u32; 10] = [0; 10]; // Max 10 derivation levels
@@ -365,14 +345,14 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
             }
         }
     };
-    debug_hex("PUBLIC_KEY", pubkey.as_slice());
+    debug!("PUBLIC_KEY {:?}", pubkey.as_slice());
 
     let compressed_pubkey = match compress_public_key(pubkey.as_slice()) {
         Ok(pkey) => pkey,
         Err(_) => return Err(SwapAppErrorCode::FailedToCompressPublicKey),
     };
 
-    debug_hex("COMPRESSED_PKEY", compressed_pubkey.as_slice());
+    debug!("COMPRESSED_PKEY {:?}", compressed_pubkey.as_slice());
 
     let address_bytes = match public_key_to_address_base58(&compressed_pubkey, false) {
         Ok(b) => b,
@@ -401,14 +381,14 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
 
     // Compare hex strings
     if address_base58 == ref_hex {
-        debug_print("Check address successful, derived and received addresses match\n");
+        debug!("Check address successful, derived and received addresses match\n");
         Ok(true) // Success
     } else {
-        debug_print("Derived and received addresses do NOT match\n");
-        debug_hex("Derived address: ", address);
-        debug_print("Reference (hex): ");
-        debug_print(ref_hex);
-        debug_print("\n");
+        debug!("Derived and received addresses do NOT match\n");
+        debug!("Derived address: {:?}", address);
+        debug!("Reference (hex): ");
+        debug!("{:?}", ref_hex);
+        debug!("\n");
         Ok(false) // Failure
     }
 }
@@ -463,8 +443,7 @@ fn get_printable_amount(
     let dst_start = 32 - params.amount_len;
     amount_u256[dst_start..].copy_from_slice(&params.amount[src_start..]);
 
-    debug_print("Amount bytes (u256): ");
-    debug_hex("", &amount_u256);
+    debug!("Amount bytes (u256): {:?} ", &amount_u256);
 
     // Use SDK helper to format amount with decimals
     let amount_str = uint256_to_float(&amount_u256, ZCASH_DECIMALS as usize);
@@ -473,9 +452,7 @@ fn get_printable_amount(
     let mut printable: ArrayString<40> = ArrayString::<40>::new();
     let _ = write!(&mut printable, "{} {}", ZCASH_TICKER, amount_str.as_str());
 
-    debug_print("Formatted amount: ");
-    debug_print(printable.as_str());
-    debug_print("\n");
+    debug!("Formatted amount: {:?} ", printable.as_str());
 
     Ok(printable)
 }
