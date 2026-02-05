@@ -128,24 +128,6 @@ pub enum SwapAppErrorCode {
     KeyDerivationFailed = 0x06,
 }
 
-pub trait ErrorText {
-    fn text(&self) -> &'static str;
-}
-
-impl ErrorText for SwapAppErrorCode {
-    fn text(&self) -> &'static str {
-        match self {
-            SwapAppErrorCode::PathTooLong => "Path too long",
-            SwapAppErrorCode::AmountCastFail => "Amount cast fail",
-            SwapAppErrorCode::DestinationDecodeFail => "Destination decode fail",
-            SwapAppErrorCode::FailedToSerializeAddress => "Failed to serialize address",
-            SwapAppErrorCode::FailedToCompressPublicKey => " Failed to compress public key",
-            SwapAppErrorCode::KeyDerivationFailed => "Key derivation failed",
-            SwapAppErrorCode::Default => "Default ",
-        }
-    }
-}
-
 impl SwapAppErrorCodeTrait for SwapAppErrorCode {
     // Cast is safe as enum is #[repr(u8)]
     fn as_u8(self) -> u8 {
@@ -285,7 +267,7 @@ pub fn swap_main(arg0: u32) {
                 .map(|res| {
                     swap::swap_return(SwapResult::CheckAddressResult(&mut params, res as i32))
                 })
-                .unwrap_or_else(|e| debug_print(e.text()));
+                .unwrap_or_else(|e| debug_print(&format!("{:?}", e)));
         }
         LibCallCommand::SwapGetPrintableAmount => {
             debug_print("Received SwapGetPrintableAmount command\n");
@@ -297,7 +279,7 @@ pub fn swap_main(arg0: u32) {
                         amount_str.as_str(),
                     ))
                 })
-                .unwrap_or_else(|e| debug_print(e.text()));
+                .unwrap_or_else(|e| debug_print(&format!("{:?}", e)));
         }
         LibCallCommand::SwapSignTransaction => {
             debug_print("Received SwapSignTransaction command\n");
