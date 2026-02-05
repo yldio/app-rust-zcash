@@ -46,6 +46,10 @@ pub struct Hashers {
     pub orchard_hasher: Blake2b_256,
     pub sapling_hasher: Blake2b_256,
 
+    pub tx_memo_hasher: Blake2b_256,
+    pub tx_compact_hasher: Blake2b_256,
+    pub tx_non_compact_hasher: Blake2b_256,
+
     pub tx_full_hasher: Blake2b_256,
 }
 
@@ -193,7 +197,7 @@ pub fn handler_hash_input_start(
     let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
 
     ctx.parser
-        .parse_chunk(
+        .parse(
             &mut ParserCtx {
                 tx_state: &mut ctx.tx_signing_state,
                 tx_info: &mut ctx.tx_info,

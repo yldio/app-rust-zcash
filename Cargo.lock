@@ -74,6 +74,7 @@ dependencies = [
  "include_gif",
  "ledger_device_sdk",
  "ledger_secure_sdk_sys",
+ "orchard",
  "zcash_encoding",
  "zcash_primitives",
  "zcash_protocol",

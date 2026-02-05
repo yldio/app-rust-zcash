@@ -6,9 +6,6 @@ from ragger.conftest import configuration
 
 from ledger_app_clients.exchange.navigation_helper import ExchangeNavigationHelper
 
-
-# from ledger_app_clients.exchange.navigation_helper import ExchangeNavigationHelper
-
 ###########################
 ### CONFIGURATION START ###
 ###########################
