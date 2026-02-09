@@ -189,7 +189,7 @@ pub fn check_output_displayable(
 //     address[VERSION_SIZE..].copy_from_slice(&script[ADDRESS_OFFSET..ADDRESS_OFFSET + 20]);
 
 //     let bytes: [u8; TRANSPARENT_ADDRESS_B58_LEN] = public_key_to_address_base58(&address, true)?;
-//     debug!("address_bytes: {:?}", &bytes);
+//     debug!("address_bytes: {}", HesSlice(&bytes));
 //     let address_base58 = str::from_utf8(&bytes)
 //         .map_err(|_| AppSW::ExecutionError)?
 //         .into();
