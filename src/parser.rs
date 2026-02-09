@@ -3,6 +3,7 @@ use ::orchard::bundle::commitments::{
 };
 use alloc::{string::ToString, vec::Vec};
 use core::{iter, mem};
+use ledger_device_sdk::libcall::swap::CreateTxParams;
 use zcash_primitives::transaction::sighash_v5::{
     ZCASH_TRANSPARENT_AMOUNTS_HASH_PERSONALIZATION, ZCASH_TRANSPARENT_INPUT_HASH_PERSONALIZATION,
     ZCASH_TRANSPARENT_SCRIPTS_HASH_PERSONALIZATION,
@@ -32,12 +33,12 @@ use crate::parser::reader::ByteReader;
 use crate::settings::Settings;
 use crate::utils::blake2b_256_pers::{AsWriter, Blake2b256Personalization};
 use crate::utils::{check_output_displayable, secure_memcmp, CheckDispOutput, HexSlice};
-use crate::AppSW;
 use crate::{app_ui::sign::ui_display_tx, utils::base58_address::Base58Address};
 use crate::{
     consts::{MAX_OUTPUTS_NUMBER, MAX_SCRIPT_SIZE, TRUSTED_INPUT_TOTAL_SIZE},
     utils::base58_address::ToBase58Address,
 };
+use crate::{swap, AppSW};
 use error::ok;
 
 pub use error::{ParserError, ParserSourceError};
@@ -710,6 +711,7 @@ impl Parser {
 pub struct OutputParserCtx<'ctx> {
     pub tx_info: &'ctx mut TxInfo,
     pub hashers: &'ctx mut Hashers,
+    pub swap_params: Option<&'ctx CreateTxParams>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -870,10 +872,18 @@ impl OutputParser {
                             .ok_or(AppSW::IncorrectData)
                             .inspect_err(|_| error!("Failed to calculate fees")));
 
-                        if !ok!(ui_display_tx(&ctx.tx_info.outputs, fees)) {
-                            return Err(ParserError::user());
+                        if let Some(swap_params) = ctx.swap_params {
+                            ok!(swap::check_swap_params(
+                                swap_params,
+                                &ctx.tx_info.outputs,
+                                fees
+                            ));
+                        } else {
+                            if !ok!(ui_display_tx(&ctx.tx_info.outputs, fees)) {
+                                return Err(ParserError::user());
+                            }
+                            info!("All outputs reviewed");
                         }
-                        info!("All outputs reviewed");
 
                         ok!(ctx
                             .hashers

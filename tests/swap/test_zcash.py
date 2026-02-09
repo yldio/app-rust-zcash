@@ -14,11 +14,11 @@ class ZcashTests(ExchangeTestRunner):
     # The coin configuration of our currency. Replace by your own
     currency_configuration = cal.ZCASH_CURRENCY_CONFIGURATION
     # A valid template address of a supposed trade partner.
-    valid_destination_1 = "t1MSQFN2D2Tv7a2EQwsXHXXUc1hVeTJMR8m" # FIXME: incorrect
+    valid_destination_1 = "t1MSQFN2D2Tv7a2EQwsXHXXUc1hVeTJMR8m"
     # A memo to use associated with the destination address if applicable.
     valid_destination_memo_1 = ""
     # A second valid template address of a supposed trade partner.
-    valid_destination_2 = "t1NNh42d2omDRtdBryQGtedE5sRFmzEMuBw" # FIXME: incorrect
+    valid_destination_2 = "t1NNh42d2omDRtdBryQGtedE5sRFmzEMuBw"
     # A second memo to use associated with the destination address if applicable.
     valid_destination_memo_2 = ""
     # The address of the Speculos seed on the ZCASH_PATH.
@@ -39,18 +39,25 @@ class ZcashTests(ExchangeTestRunner):
 
     # The error code we expect our application to respond when encountering errors.
     signature_refusal_error_code = ZcashErrors.SW_DENY
-    wrong_amount_error_code = ZcashErrors.SW_SWAP_FAIL
-    wrong_destination_error_code = ZcashErrors.SW_SWAP_FAIL
+    wrong_amount_error_code = ZcashErrors.SW_INVALID_TRANSACTION
+    wrong_destination_error_code = ZcashErrors.SW_INVALID_TRANSACTION
 
     # The final transaction to craft and send as part of the SWAP finalization.
     # This function will be called by the ExchangeTestRunner in a callback like way
     def perform_final_tx(self, destination, send_amount, fees, memo):
         # Create the transaction that will be sent to the device for signing
-        # TODO:
+        print(f"Performing final TX with destination: {destination}, send_amount: {send_amount}, fees: {fees}, memo: {memo}")
         # Send the TX
-        # TODO:
+        recipient_publickey = ""
+        if destination == "t1MSQFN2D2Tv7a2EQwsXHXXUc1hVeTJMR8m" :# 1CB8271C49F4743E2478890F7DC607360935CFF0DE548B7D51D2
+            recipient_publickey = "271C49F4743E2478890F7DC607360935CFF0DE54"
+
+        if destination == "t1NNh42d2omDRtdBryQGtedE5sRFmzEMuBw" :# 1CB83160C750E722B32E6BDF2B581F26027755804C4C1345FD5A
+            recipient_publickey = "3160C750E722B32E6BDF2B581F26027755804C4C"
+
+        ZcashCommandSender(self.backend).sign_tx_v5_swap(path=ZCASH_PATH, recipient_publickey=recipient_publickey, send_amount=send_amount)
+
         # TODO : assert signature validity. Not required but recommended
-        pass
 
 
 # We use a class to reuse the same Speculos instance (faster performances)

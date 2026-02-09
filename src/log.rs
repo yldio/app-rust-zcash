@@ -7,16 +7,17 @@ pub struct DBG;
 
 #[cfg(feature = "log_debug")]
 impl Write for DBG {
+    #[allow(deprecated)]
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         use arrayvec::ArrayString;
         // Dunno why the copy is required, might be some pic issue as this is going straight to
         // assembly.
         for c in s.chars() {
-            use ledger_device_sdk::log;
+            use ledger_device_sdk::testing::debug_print;
 
             let mut qq = ArrayString::<1>::new();
             qq.push(c);
-            log::debug!("{}", qq.as_str());
+            debug_print(qq.as_str());
         }
         Ok(())
     }

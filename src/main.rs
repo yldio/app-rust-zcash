@@ -35,6 +35,8 @@ mod settings;
 mod swap;
 mod utils;
 
+use core::mem;
+
 use app_ui::menu::ui_menu_main;
 use handlers::{
     get_public_key::handler_get_public_key, get_version::handler_get_version, sign_tx::TxContext,
@@ -187,11 +189,8 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
     if tx_ctx.swap_params.is_some() {
         return;
     }
-    #[cfg_attr(
-        any(target_os = "nanox", target_os = "nanosplus"),
-        allow(unused_variables)
-    )]
-    let (show_status, status_type) = match (ins, status) {
+
+    let (show_status, _status_type) = match (ins, status) {
         (Instruction::GetPubkey { display: true }, AppSW::Deny | AppSW::Ok) => {
             (true, StatusType::Address)
         }
@@ -210,7 +209,7 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
 
             let success = *status == AppSW::Ok;
             NbglReviewStatus::new()
-                .status_type(status_type)
+                .status_type(_status_type)
                 .show(success);
         }
 
@@ -219,7 +218,7 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
     }
 }
 
-fn try_init_trusted_input_key_storage() {
+fn init_trusted_input_key_storage() {
     if Settings.trusted_input_key().is_none() {
         let mut rng = [0u8; 32];
         rand_bytes(&mut rng);
@@ -261,17 +260,17 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
     let mut comm = Comm::new().set_expected_cla(ZCASH_CLA);
     init_comm(&mut comm);
 
-    try_init_trusted_input_key_storage();
+    init_trusted_input_key_storage();
 
-    debug!("App started");
-
-    let mut tx_ctx = if let Some(params) = swap_params {
-        TxContext::new_with_swap(params, Default::default())
+    if swap_params.is_some() {
+        debug!("App started in SWAP mode");
     } else {
-        TxContext::new(Default::default())
-    };
+        debug!("App started");
+    }
 
-    debug!("TxContext size {} bytes", core::mem::size_of_val(&tx_ctx));
+    let mut tx_ctx = TxContext::new(swap_params);
+
+    debug!("TxContext size {} bytes", mem::size_of_val(&tx_ctx));
 
     if swap_params.is_none() {
         tx_ctx.home = ui_menu_main(&mut comm);
@@ -281,9 +280,9 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
     loop {
         let ins: Instruction = comm.next_command();
 
-        debug!("Received apdu {:?}", ins);
+        debug!("Received APDU {:?}", ins);
 
-        let _status = match handle_apdu(&mut comm, &ins, &mut tx_ctx) {
+        let status = match handle_apdu(&mut comm, &ins, &mut tx_ctx) {
             Ok(()) => {
                 comm.reply_ok();
                 AppSW::Ok
@@ -293,7 +292,12 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
                 sw
             }
         };
-        show_status_and_home_if_needed(&ins, &mut tx_ctx, &_status);
+        show_status_and_home_if_needed(&ins, &mut tx_ctx, &status);
+
+        // In swap mode, exit after transaction is finished (signed or rejected)
+        if tx_ctx.swap_params.is_some() && tx_ctx.is_finished() {
+            return status == AppSW::Ok;
+        }
     }
 }
 

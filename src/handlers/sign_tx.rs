@@ -97,24 +97,12 @@ pub struct TxSigningState {
     pub is_tx_parsed_once: bool,
 }
 
-/// This struct will be needed wen implementing SWAP later.
-/// TODO: rm this comment
-pub struct Tx<'a> {
-    #[allow(dead_code)]
-    nonce: u64,
-    #[allow(unused)]
-    pub coin: &'a str,
-    pub value: u64,
-    pub to: [u8; 20],
-    #[allow(unused)]
-    pub memo: &'a str,
-}
-
 /// Transaction context holding state between APDU chunks.
 pub struct TxContext<'a> {
-    review_finished: bool,
+    is_review_finished: bool,
 
-    pub is_extra_header_data_set: bool,
+    is_extra_header_data_set: bool,
+    is_finished: bool,
     pub tx_signing_state: TxSigningState,
 
     pub tx_info: TxInfo,
@@ -130,24 +118,34 @@ pub struct TxContext<'a> {
 }
 
 // Implement constructor for TxInfo with default values
-impl<'a> TxContext<'a> {
-    // Constructor
-    pub fn new(parser_mode: ParserMode) -> TxContext<'a> {
+impl<'s> TxContext<'s> {
+    pub fn new(swap_params: Option<&'s CreateTxParams>) -> TxContext<'s> {
+        Self::new_with_params(swap_params, Default::default())
+    }
+
+    fn new_with_params(swap_params: Option<&'s CreateTxParams>, mode: ParserMode) -> TxContext<'s> {
         TxContext {
-            review_finished: false,
+            is_review_finished: false,
+
+            is_extra_header_data_set: false,
+            is_finished: false,
+            tx_signing_state: Default::default(),
 
             tx_info: Default::default(),
             trusted_input_info: Default::default(),
             hashers: Default::default(),
 
-            is_extra_header_data_set: false,
-            tx_signing_state: Default::default(),
-
             home: Default::default(),
-            parser: Parser::new(parser_mode),
+            parser: Parser::new(mode),
             output_parser: OutputParser::new(),
-            swap_params: None,
+            swap_params,
         }
+    }
+
+    #[inline(always)]
+    pub fn reset(&mut self, mode: ParserMode) {
+        let swap_params = self.swap_params;
+        *self = TxContext::new_with_params(swap_params, mode);
     }
 
     pub fn set_transaction_trusted_input_idx(&mut self, idx: u32) {
@@ -156,27 +154,12 @@ impl<'a> TxContext<'a> {
 
     // Get review status
     pub fn is_review_finished(&self) -> bool {
-        self.review_finished
-    }
-    // Implement reset for TxInfo
-    #[allow(unused)]
-    fn reset(&mut self) {
-        self.review_finished = false;
+        self.is_review_finished
     }
 
-    pub fn new_with_swap(params: &'a CreateTxParams, parser_mode: ParserMode) -> TxContext<'a> {
-        TxContext {
-            review_finished: false,
-            home: Default::default(),
-            swap_params: Some(params),
-            is_extra_header_data_set: false,
-            tx_signing_state: Default::default(),
-            tx_info: Default::default(),
-            trusted_input_info: Default::default(),
-            hashers: Default::default(),
-            parser: Parser::new(parser_mode),
-            output_parser: OutputParser::new(),
-        }
+    // Get signing finished or rejected by user status
+    pub fn is_finished(&self) -> bool {
+        self.is_finished
     }
 }
 
@@ -190,8 +173,8 @@ pub fn handler_hash_input_start(
         info!("Reset parser");
         ctx.parser = Parser::new(ParserMode::Signature);
     } else if first {
-        info!("Init TX context");
-        *ctx = TxContext::new(ParserMode::Signature);
+        info!("Reset TX context");
+        ctx.reset(ParserMode::Signature);
     }
 
     // Try to get data from comm
@@ -257,6 +240,7 @@ pub fn handler_hash_input_finalize_full(
             &mut crate::parser::OutputParserCtx {
                 tx_info: &mut ctx.tx_info,
                 hashers: &mut ctx.hashers,
+                swap_params: ctx.swap_params,
             },
             data,
         )
@@ -265,13 +249,32 @@ pub fn handler_hash_input_finalize_full(
             match e.source {
                 ParserSourceError::Hash(_) => AppSW::TechnicalProblem,
                 ParserSourceError::AppSW(sw) => sw,
-                ParserSourceError::UserDenied => AppSW::Deny,
+                ParserSourceError::UserDenied => {
+                    // User rejected output after review, mark transaction as finished
+                    ctx.is_finished = true;
+                    // FIXME: TODO: consider to reset TxContext on any error and for user rejection too
+                    AppSW::Deny
+                }
+                ParserSourceError::SwapError {
+                    common_code,
+                    app_code,
+                } => {
+                    // TODO: improve swap error printing (add message)
+                    error!(
+                        "Swap error with common code {} and app code {}",
+                        common_code, app_code
+                    );
+                    ctx.is_finished = true;
+
+                    // Original app sends IncorrectData for any swap error, so we do the same
+                    AppSW::IncorrectData
+                }
                 _ => AppSW::IncorrectData,
             }
         })?;
 
     if ctx.output_parser.is_finished() {
-        ctx.review_finished = true;
+        ctx.is_review_finished = true;
         if !ctx.tx_signing_state.is_tx_parsed_once {
             info!("Set TX parsed once flag");
             ctx.tx_signing_state.is_tx_parsed_once = true;
@@ -351,8 +354,6 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
         return Err(AppSW::ConditionsOfUseNotSatisfied);
     }
 
-    // Skip unused trailing data
-
     // Finalize hash
     compute_signature_and_append(
         comm,
@@ -361,6 +362,8 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
         ctx.tx_info.sighash_type,
         true,
     )?;
+
+    ctx.is_finished = true;
 
     Ok(())
 }
