@@ -344,7 +344,7 @@ pub fn get_address_from_output_script(script: &[u8]) -> Result<String, AppSW> {
     address[VERSION_SIZE..].copy_from_slice(&script[ADDRESS_OFFSET..ADDRESS_OFFSET + 20]);
 
     let bytes: [u8; TRANSPARENT_ADDRESS_B58_LEN] = public_key_to_address_base58(&address, true)?;
-    debug!("address_bytes: {:?}", HexSlice(&bytes));
+    debug!("address_bytes: {}", HexSlice(&bytes));
     let address_base58 = str::from_utf8(&bytes)
         .map_err(|_| AppSW::ExecutionError)?
         .into();
