@@ -845,7 +845,8 @@ impl OutputParser {
 
                         let address = ok!(Base58Address::from_output_script(&script.0 .0));
 
-                        let address = str::from_utf8(&address.bytes)
+                        let address = address
+                            .as_str()
                             .map_err(|_| ParserError::from_str("base58 serializaoin error"))?
                             .to_owned();
                         debug!("address_string: {}", &address);
