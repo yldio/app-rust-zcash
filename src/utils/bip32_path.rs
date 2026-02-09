@@ -1,5 +1,3 @@
-use core::usize;
-
 use ledger_device_sdk::libcall::swap::CheckAddressParams;
 
 use crate::{swap::SwapAppErrorCode, AppSW};
@@ -16,12 +14,6 @@ pub struct Bip32Path {
     path_len: u8,
 }
 
-// impl AsRef<[u32]> for Bip32Path {
-//     fn as_ref(&self) -> &[u32] {
-//         &self.0
-//     }
-// }
-
 impl Bip32Path {
     pub fn as_slice(&self) -> &[u32] {
         &self.path[..self.path_len as usize]
@@ -37,7 +29,6 @@ impl<
     > for Bip32Path
 {
     type Error = SwapAppErrorCode;
-
     fn try_from(
         value: &CheckAddressParams<
             COIN_CONFIG_BUF_SIZE,
@@ -51,15 +42,10 @@ impl<
             return Err(SwapAppErrorCode::PathTooLong);
         }
 
-        let mut path = [0; MAX_ZCASH_BIP32_PATH];
+        let mut path = [0u32; MAX_ZCASH_BIP32_PATH];
 
-        for i in 0..value.dpath_len {
-            path[i] = u32::from_be_bytes([
-                value.dpath[i * 4],
-                value.dpath[i * 4 + 1],
-                value.dpath[i * 4 + 2],
-                value.dpath[i * 4 + 3],
-            ]);
+        for (dst, chunk) in path.iter_mut().zip(value.dpath.chunks_exact(4)) {
+            *dst = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         }
 
         Ok(Bip32Path { path, path_len })

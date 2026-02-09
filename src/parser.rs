@@ -25,7 +25,7 @@ use zcash_protocol::value::Zatoshis;
 use zcash_transparent::address::Script;
 use zcash_transparent::bundle::OutPoint;
 
-use crate::consts::{MAX_OUTPUTS_NUMBER, MAX_SCRIPT_SIZE, TRUSTED_INPUT_TOTAL_SIZE};
+use crate::app_ui::sign::ui_display_tx;
 use crate::handlers::sign_tx::{Hashers, TrustedInputInfo, TxInfo, TxOutput, TxSigningState};
 use crate::log::{debug, error, info};
 use crate::parser::compute::{finalize_signature_hash, finalize_signature_input_hash};
@@ -34,7 +34,10 @@ use crate::settings::Settings;
 use crate::utils::blake2b_256_pers::{AsWriter, Blake2b256Personalization};
 use crate::utils::{check_output_displayable, secure_memcmp, CheckDispOutput, HexSlice};
 use crate::AppSW;
-use crate::{app_ui::sign::ui_display_tx, utils::base58::get_address_from_output_script};
+use crate::{
+    consts::{MAX_OUTPUTS_NUMBER, MAX_SCRIPT_SIZE, TRUSTED_INPUT_TOTAL_SIZE},
+    utils::base58_address::Base58Address,
+};
 use error::ok;
 
 pub use error::{ParserError, ParserSourceError};
@@ -840,7 +843,7 @@ impl OutputParser {
                             return Err(ParserError::from_str("Multiple change outputs detected"));
                         }
 
-                        let address = ok!(get_address_from_output_script(&script.0 .0));
+                        let address = ok!(Base58Address::from_output_script(&script.0 .0));
 
                         let address = str::from_utf8(&address.bytes)
                             .map_err(|_| ParserError::from_str("base58 serializaoin error"))?

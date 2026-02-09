@@ -14,12 +14,15 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *****************************************************************************/
-use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
 use crate::utils::{check_bip44_compliance, HexSlice};
 use crate::AppSW;
 use crate::{
     log::{debug, error, info},
-    utils::{bip32_path::Bip32Path, public_key::PubKeyWithCC},
+    utils::{bip32_path::Bip32Path, extended_public_key::ExtendedPublicKey},
+};
+use crate::{
+    parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError},
+    utils::hashers::ToHash160,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -237,9 +240,9 @@ pub fn handler_hash_input_finalize_full(
     if is_change_info {
         let path: Bip32Path = data.try_into()?;
 
-        let public_key_with_cc = PubKeyWithCC::try_from(&path)?;
+        let public_key_with_cc = ExtendedPublicKey::try_from(&path)?;
 
-        ctx.tx_info.change_pk_hash = public_key_with_cc.public_key_hash160()?;
+        ctx.tx_info.change_pk_hash = public_key_with_cc.hash160()?;
 
         info!("Change pk hash: {}", HexSlice(&ctx.tx_info.change_pk_hash));
 

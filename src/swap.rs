@@ -43,28 +43,24 @@
 
 use arrayvec::ArrayString;
 use core::fmt::Write;
-use ledger_device_sdk::{
-    hash::sha3::Keccak256,
-    libcall::{
-        self,
-        string::uint256_to_float,
-        swap::{
-            self, CheckAddressParams, CreateTxParams, PrintableAmountParams, SwapError,
-            SwapErrorCommonCode, SwapResult,
-        },
-        SwapAppErrorCodeTrait,
+use ledger_device_sdk::libcall::LibCallCommand;
+use ledger_device_sdk::libcall::{
+    self,
+    string::uint256_to_float,
+    swap::{
+        self, CheckAddressParams, CreateTxParams, PrintableAmountParams, SwapError,
+        SwapErrorCommonCode, SwapResult,
     },
+    SwapAppErrorCodeTrait,
 };
-use ledger_device_sdk::{hash::HashInit, libcall::LibCallCommand};
 
 use crate::{
     consts::{ZCASH_DECIMALS, ZCASH_TICKER},
     handlers::sign_tx::Tx,
     log::{debug, error, info},
     utils::{
-        base58::get_address_from_public_key,
-        bip32_path::Bip32Path,
-        public_key::{self, PubKeyWithCC},
+        base58_address::Base58Address, bip32_path::Bip32Path,
+        extended_public_key::ExtendedPublicKey,
     },
 };
 use alloc::{format, string::ToString};
@@ -126,8 +122,7 @@ pub enum SwapAppErrorCode {
 
     PathTooLong = 0x03,
     FailedToSerializeAddress = 0x04,
-    FailedToCompressPublicKey = 0x05,
-    KeyDerivationFailed = 0x06,
+    FailedToDeriveAddress = 0x05,
 }
 
 impl SwapAppErrorCodeTrait for SwapAppErrorCode {
@@ -319,47 +314,26 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
     let path_bytes = &params.dpath[..params.dpath_len * 4];
     debug!("path bytes {:?}", path_bytes);
 
-    let path = Bip32Path::try_from(params)?;
+    let bip32_path = Bip32Path::try_from(params)?;
 
-    let public_key_with_cc =
-        PubKeyWithCC::try_from(&path).map_err(|_e| SwapAppErrorCode::KeyDerivationFailed)?;
+    let extended_public_key = ExtendedPublicKey::try_from(&bip32_path)
+        .map_err(|_e| SwapAppErrorCode::FailedToDeriveAddress)?;
 
-    let public_key = public_key_with_cc.public_key;
+    let compressed_key_hash = &extended_public_key
+        .compressed_public_key_hash160()
+        .map_err(|_e| SwapAppErrorCode::FailedToDeriveAddress)?;
+    let base58_address = Base58Address::from_public_key_hash(compressed_key_hash)
+        .map_err(|_e| SwapAppErrorCode::FailedToDeriveAddress)?;
+    debug!("bytes collected{:?}", &base58_address.len);
 
-    debug!("PUBLIC_KEY {:?}", public_key.as_slice());
-
-    let compressed_pubkey = public_key_with_cc
-        .compressed_public_key()
-        .map_err(|_| SwapAppErrorCode::FailedToCompressPublicKey)?;
-
-    debug!("COMPRESSED_PKEY {:?}", compressed_pubkey.as_slice());
-
-    let address_bytes = get_address_from_public_key(
-        &public_key_with_cc
-            .public_key_hash160()
-            .map_err(|_| SwapAppErrorCode::FailedToCompressPublicKey)?,
-    )
-    .map_err(|_| SwapAppErrorCode::FailedToCompressPublicKey)?
-    .bytes;
-
-    let address_base58 =
-        str::from_utf8(&address_bytes).map_err(|_| SwapAppErrorCode::FailedToSerializeAddress)?;
-    debug!("address_string: {}", &address_base58);
-
-    // Compute address: Keccak256 hash of pubkey (excluding first byte 0x04)
-    let address_hash = get_address_hash_from_pubkey(&public_key);
-    // Take last 20 bytes as address (Ethereum-style)
-    let address = &address_hash[address_hash.len() - 20..];
-
-    // Exchange sends address bytes, but SDK's read_c_string() interprets them as
-    // a hex string. This is a quirk of the C API - the Exchange sends binary address
-    // bytes, but they're read as ASCII characters.
-    // Example: byte 0x04 becomes ASCII '0' (0x30) and '4' (0x34) = "04" in the string
     let ref_hex = core::str::from_utf8(&params.ref_address[..params.ref_address_len])
         .map_err(|_| SwapAppErrorCode::FailedToSerializeAddress)?;
 
     // Compare hex strings
-    if address_base58 == ref_hex {
+    let address = base58_address
+        .as_str()
+        .map_err(|_e| SwapAppErrorCode::FailedToSerializeAddress)?;
+    if address == ref_hex {
         info!("Check address successful, derived and received addresses match\n");
         Ok(true) // Success
     } else {
@@ -431,33 +405,4 @@ fn get_printable_amount(
     debug!("Formatted amount: {:?} ", printable.as_str());
 
     Ok(printable)
-}
-// --8<-- [end:get_printable_amount]
-
-/// Compute Keccak256 hash of a public key for address derivation.
-///
-/// This is used for Ethereum-style address computation:
-/// 1. Take uncompressed pubkey (65 bytes)
-/// 2. Skip first byte (0x04 marker)
-/// 3. Hash the remaining 64 bytes with Keccak256
-/// 4. Take last 20 bytes as address
-///
-/// # Used by
-///
-/// - `handler_get_public_key`: For displaying address to user
-/// - `swap::check_address`: For verifying address ownership
-///
-/// # Arguments
-///
-/// * `pubkey` - 65-byte uncompressed secp256k1 public key
-///
-/// # Returns
-///
-/// 32-byte Keccak256 hash (last 20 bytes are the Zcash address)
-pub fn get_address_hash_from_pubkey(pubkey: &[u8; 65]) -> [u8; 32] {
-    let mut keccak256 = Keccak256::new();
-    let mut address: [u8; 32] = [0u8; 32];
-    // Hash pubkey excluding first byte (0x04 uncompressed marker)
-    let _ = keccak256.hash(&pubkey[1..], &mut address);
-    address
 }

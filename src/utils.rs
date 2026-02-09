@@ -1,15 +1,13 @@
-use alloc::string::String;
-
 use crate::{
     log::{debug, error},
-    utils::{bip32_path::Bip32Path, public_key::TRANSPARENT_ADDRESS_B58_LEN},
+    utils::bip32_path::Bip32Path,
 };
 
-pub mod base58;
+pub mod base58_address;
 pub mod bip32_path;
 pub mod blake2b_256_pers;
+pub mod extended_public_key;
 pub mod hashers;
-pub mod public_key;
 use crate::AppSW;
 
 pub enum Endianness {

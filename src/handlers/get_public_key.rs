@@ -1,5 +1,5 @@
 /*****************************************************************************
- *   Ledger App Boilerplate Rust.
+ *   Ledger App Zcash Rust.
  *   (c) 2023 Ledger SAS.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,12 +17,9 @@
 
 use crate::{
     app_ui::address::ui_display_pk,
-    utils::{
-        base58::get_address_from_public_key, bip32_path::Bip32Path, hashers::hash160,
-        public_key::PubKeyWithCC,
-    },
+    utils::{base58_address::Base58Address, extended_public_key::ExtendedPublicKey},
 };
-use crate::{log::debug, utils::public_key};
+use crate::{log::debug, utils::hashers::ToHash160};
 
 use crate::AppSW;
 use ledger_device_sdk::io::Comm;
@@ -45,36 +42,30 @@ use ledger_device_sdk::io::Comm;
 /// via the shared `get_address_hash_from_pubkey()` helper, ensuring consistency.
 pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppSW> {
     debug!("Called get public key handler");
-    let data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
-    let path: Bip32Path = data.try_into()?;
 
-    debug!("path {:?}", path);
-    let public_key_with_cc = PubKeyWithCC::try_from(&path)?;
-    // let PubKeyWithCC {
-    //     public_key,
-    //     public_key_len,
-    //     chain_code,
-    // } = PubKeyWithCC::try_from(&path)?;
-    let binding = public_key_with_cc.clone();
-    let public_key = binding.public_key_slice();
+    let bip32_path = comm
+        .get_data()
+        .map_err(|_| AppSW::WrongApduLength)?
+        .try_into()?;
+    debug!("path {:?}", bip32_path);
 
-    debug!("public_key {:?}", public_key);
+    let extended_public_key = ExtendedPublicKey::try_from(&bip32_path)?;
 
-    let compressed_key = &public_key_with_cc.clone().compressed_public_key()?;
-    let h160 = hash160(compressed_key)?;
-
-    let base58_address = get_address_from_public_key(&h160)?;
+    let compressed_key_hash = &extended_public_key.compressed_public_key()?.hash160()?;
+    let base58_address = Base58Address::from_public_key_hash(compressed_key_hash)?;
     debug!("bytes collected{:?}", &base58_address.len);
-    let address_str = str::from_utf8(&base58_address.bytes).map_err(|_| AppSW::ExecutionError)?;
+
+    let address_str = base58_address.as_str()?;
     debug!("address_str {:?}", address_str);
+
     // Display address on device if requested
     if display && !ui_display_pk(address_str)? {
         return Err(AppSW::Deny);
     }
 
-    comm.append(&[public_key_with_cc.public_key_len as u8]);
-    comm.append(public_key);
-
+    let public_key = extended_public_key.public_key_slice();
+    comm.append(&[extended_public_key.public_key_len as u8]);
+    comm.append(extended_public_key.public_key_slice());
     debug!("Public Key: {:02X?}", public_key);
 
     let addr_len = address_str.len() as u8;
@@ -84,9 +75,9 @@ pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppS
     debug!("Address: {}", address_str);
 
     // Don't encode chain code length, it's always 32 bytes
-    comm.append(&public_key_with_cc.clone().chain_code);
+    comm.append(&extended_public_key.clone().chain_code);
 
-    debug!("Chain Code: {:02X?}", public_key_with_cc.chain_code);
+    debug!("Chain Code: {:02X?}", extended_public_key.chain_code);
 
     Ok(())
 }
