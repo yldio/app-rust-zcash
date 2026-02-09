@@ -29,8 +29,8 @@ impl Parser {
         ctx.hashers
             .tx_compact_hasher
             .update(&reader.remaining_slice()[..compact_size])
-            .map_parser_error()?;
-        reader.advance(compact_size).map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
+        reader.advance(compact_size).map_parser_error(file!(), line!())?;
 
         self.orchard_action_parsed_count += 1;
 
@@ -64,8 +64,8 @@ impl Parser {
         ctx.hashers
             .tx_memo_hasher
             .update(&reader.remaining_slice()[..to_read])
-            .map_parser_error()?;
-        reader.advance(to_read).map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
+        reader.advance(to_read).map_parser_error(file!(), line!())?;
 
         let new_remaining_size = remaining_size - to_read;
         if new_remaining_size == 0 {
@@ -109,9 +109,9 @@ impl Parser {
         ctx.hashers
             .tx_non_compact_hasher
             .update(&reader.remaining_slice()[..non_compact_size])
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
-        reader.advance(non_compact_size).map_parser_error()?;
+        reader.advance(non_compact_size).map_parser_error(file!(), line!())?;
 
         self.orchard_action_parsed_count += 1;
 
@@ -134,32 +134,32 @@ impl Parser {
         ctx.hashers
             .tx_compact_hasher
             .finalize(&mut orchard_output_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         let mut orchard_output_memo_digest = [0u8; 32];
         ctx.hashers
             .tx_memo_hasher
             .finalize(&mut orchard_output_memo_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         let mut orchard_output_non_compact_digest = [0u8; 32];
         ctx.hashers
             .tx_non_compact_hasher
             .finalize(&mut orchard_output_non_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         ctx.hashers
             .orchard_hasher
             .update(&orchard_output_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         ctx.hashers
             .orchard_hasher
             .update(&orchard_output_memo_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         ctx.hashers
             .orchard_hasher
             .update(&orchard_output_non_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         // Read orchard digest data: 1 + 8 + 32
         let orch_dig_data_size = 1 + 8 + 32;
@@ -172,8 +172,8 @@ impl Parser {
         ctx.hashers
             .orchard_hasher
             .update(&reader.remaining_slice()[..orch_dig_data_size])
-            .map_parser_error()?;
-        reader.advance(orch_dig_data_size).map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
+        reader.advance(orch_dig_data_size).map_parser_error(file!(), line!())?;
 
         self.state = ParserState::ProcessExtra;
 

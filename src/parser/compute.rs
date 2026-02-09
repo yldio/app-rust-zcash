@@ -35,7 +35,7 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
             ctx.hashers
                 .prevouts_hasher
                 .finalize(&mut hash)
-                .map_parser_error()?;
+                .map_parser_error(file!(), line!())?;
             hash
         };
         debug!("Prevouts hash: {}", HexSlice(&prevouts_hash));
@@ -45,7 +45,7 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
             ctx.hashers
                 .sequence_hasher
                 .finalize(&mut hash)
-                .map_parser_error()?;
+                .map_parser_error(file!(), line!())?;
             hash
         };
         debug!("Sequence hash: {}", HexSlice(&sequence_hash));
@@ -55,7 +55,7 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
             ctx.hashers
                 .outputs_hasher
                 .finalize(&mut hash)
-                .map_parser_error()?;
+                .map_parser_error(file!(), line!())?;
             hash
         };
         debug!("Outputs hash: {}", HexSlice(&outputs_hash));
@@ -68,20 +68,20 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
 
             tx_version
                 .write(&mut hasher.as_writer())
-                .map_parser_error()?;
+                .map_parser_error(file!(), line!())?;
 
             hasher
                 .update(&u32::from(branch_id).to_le_bytes())
-                .map_parser_error()?;
+                .map_parser_error(file!(), line!())?;
 
             hasher
                 .update(&ctx.tx_info.locktime.to_le_bytes())
-                .map_parser_error()?;
+                .map_parser_error(file!(), line!())?;
             hasher
                 .update(&ctx.tx_info.expiry_height.to_le_bytes())
-                .map_parser_error()?;
+                .map_parser_error(file!(), line!())?;
 
-            hasher.finalize(&mut hash).map_parser_error()?;
+            hasher.finalize(&mut hash).map_parser_error(file!(), line!())?;
             hash
         };
         debug!("Header hash: {}", HexSlice(&header_hash));
@@ -92,11 +92,11 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
             let mut hasher = Blake2b_256::default();
             hasher.init_with_perso(ZCASH_TRANSPARENT_HASH_PERSONALIZATION);
 
-            hasher.update(&prevouts_hash).map_parser_error()?;
-            hasher.update(&sequence_hash).map_parser_error()?;
-            hasher.update(&outputs_hash).map_parser_error()?;
+            hasher.update(&prevouts_hash).map_parser_error(file!(), line!())?;
+            hasher.update(&sequence_hash).map_parser_error(file!(), line!())?;
+            hasher.update(&outputs_hash).map_parser_error(file!(), line!())?;
 
-            hasher.finalize(&mut hash).map_parser_error()?;
+            hasher.finalize(&mut hash).map_parser_error(file!(), line!())?;
             hash
         };
         debug!("Transparent hash: {}", HexSlice(&transparent_hash));
@@ -106,7 +106,7 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
             ctx.hashers
                 .sapling_hasher
                 .finalize(&mut hash)
-                .map_parser_error()?;
+                .map_parser_error(file!(), line!())?;
             hash
         };
         debug!("Sapling hash: {}", HexSlice(&sapling_hash));
@@ -116,7 +116,7 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
             ctx.hashers
                 .orchard_hasher
                 .finalize(&mut hash)
-                .map_parser_error()?;
+                .map_parser_error(file!(), line!())?;
             hash
         };
         debug!("Orchard hash: {}", HexSlice(&orchard_hash));
@@ -128,14 +128,14 @@ pub fn tx_id(ctx: &mut ParserCtx<'_>) -> Result<(), ParserError> {
         let mut hasher = Blake2b_256::default();
         hasher.init_with_perso(&personalization);
 
-        hasher.update(&header_hash).map_parser_error()?;
-        hasher.update(&transparent_hash).map_parser_error()?;
-        hasher.update(&sapling_hash).map_parser_error()?;
-        hasher.update(&orchard_hash).map_parser_error()?;
+        hasher.update(&header_hash).map_parser_error(file!(), line!())?;
+        hasher.update(&transparent_hash).map_parser_error(file!(), line!())?;
+        hasher.update(&sapling_hash).map_parser_error(file!(), line!())?;
+        hasher.update(&orchard_hash).map_parser_error(file!(), line!())?;
 
         hasher
             .finalize(&mut ctx.trusted_input_info.tx_id)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         debug!(
             "Transaction ID hash: {}",
@@ -158,25 +158,25 @@ pub fn finalize_signature_input_hash(ctx: &mut ParserCtx<'_>) -> Result<(), Pars
     ctx.hashers
         .prevouts_hasher
         .finalize(&mut ctx.tx_info.prevouts_hash)
-        .map_parser_error()?;
+        .map_parser_error(file!(), line!())?;
     info!("prevout hash {}", HexSlice(&ctx.tx_info.prevouts_hash));
 
     ctx.hashers
         .sequence_hasher
         .finalize(&mut ctx.tx_info.sequence_hash)
-        .map_parser_error()?;
+        .map_parser_error(file!(), line!())?;
     info!("sequence hash {}", HexSlice(&ctx.tx_info.sequence_hash));
 
     ctx.hashers
         .amounts_hasher
         .finalize(&mut ctx.tx_info.amounts_hash)
-        .map_parser_error()?;
+        .map_parser_error(file!(), line!())?;
     info!("amounts hash {}", HexSlice(&ctx.tx_info.amounts_hash));
 
     ctx.hashers
         .scripts_hasher
         .finalize(&mut ctx.tx_info.scripts_hash)
-        .map_parser_error()?;
+        .map_parser_error(file!(), line!())?;
     info!("scripts hash {}", HexSlice(&ctx.tx_info.scripts_hash));
 
     Ok(())
@@ -187,7 +187,7 @@ pub fn finalize_signature_hash(ctx: &mut ParserCtx<'_>) -> Result<(), ParserErro
     ctx.hashers
         .prevouts_hasher
         .finalize(&mut txin_sig_digest)
-        .map_parser_error()?;
+        .map_parser_error(file!(), line!())?;
     info!("txin sig digest {}", HexSlice(&txin_sig_digest));
 
     // Compute transparent_sig_digest
@@ -199,25 +199,25 @@ pub fn finalize_signature_hash(ctx: &mut ParserCtx<'_>) -> Result<(), ParserErro
 
         hasher
             .update(&[ctx.tx_info.sighash_type])
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         hasher
             .update(&ctx.tx_info.prevouts_hash)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         hasher
             .update(&ctx.tx_info.amounts_hash)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         hasher
             .update(&ctx.tx_info.scripts_hash)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         hasher
             .update(&ctx.tx_info.sequence_hash)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         hasher
             .update(&ctx.tx_info.outputs_hash)
-            .map_parser_error()?;
-        hasher.update(&txin_sig_digest).map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
+        hasher.update(&txin_sig_digest).map_parser_error(file!(), line!())?;
 
-        hasher.finalize(&mut hash).map_parser_error()?;
+        hasher.finalize(&mut hash).map_parser_error(file!(), line!())?;
         hash
     };
     debug!("Transparent hash: {}", HexSlice(&transparent_digest));
@@ -231,7 +231,7 @@ pub fn finalize_signature_hash(ctx: &mut ParserCtx<'_>) -> Result<(), ParserErro
         ctx.hashers
             .sapling_hasher
             .finalize(&mut sapling_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         sapling_digest
     };
 
@@ -244,7 +244,7 @@ pub fn finalize_signature_hash(ctx: &mut ParserCtx<'_>) -> Result<(), ParserErro
         ctx.hashers
             .orchard_hasher
             .finalize(&mut orchard_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         orchard_digest
     };
 
@@ -260,10 +260,10 @@ pub fn finalize_signature_hash(ctx: &mut ParserCtx<'_>) -> Result<(), ParserErro
 
     hasher
         .update(&ctx.tx_info.header_digest)
-        .map_parser_error()?;
-    hasher.update(&transparent_digest).map_parser_error()?;
-    hasher.update(&sapling_digest).map_parser_error()?;
-    hasher.update(&orchard_digest).map_parser_error()?;
+        .map_parser_error(file!(), line!())?;
+    hasher.update(&transparent_digest).map_parser_error(file!(), line!())?;
+    hasher.update(&sapling_digest).map_parser_error(file!(), line!())?;
+    hasher.update(&orchard_digest).map_parser_error(file!(), line!())?;
 
     Ok(())
 }

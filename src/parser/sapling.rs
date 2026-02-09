@@ -21,17 +21,21 @@ impl Parser {
 
         let sapling_balance = {
             let mut tmp = [0u8; 8];
-            reader.read_exact(&mut tmp).map_parser_error()?;
+            reader
+                .read_exact(&mut tmp)
+                .map_parser_error(file!(), line!())?;
             ZatBalance::from_i64_le_bytes(tmp)
         }
-        .map_parser_error()?;
+        .map_parser_error(file!(), line!())?;
 
         info!("Sapling balance: {:?}", sapling_balance);
         self.sapling_balance = sapling_balance.into();
 
         if self.sapling_spend_count > 0 {
             let mut anchor = [0u8; 32];
-            reader.read_exact(&mut anchor).map_parser_error()?;
+            reader
+                .read_exact(&mut anchor)
+                .map_parser_error(file!(), line!())?;
 
             // Init hashers
             ctx.hashers
@@ -51,7 +55,7 @@ impl Parser {
                 tmp_spend_hasher.init_with_perso(ZCASH_SAPLING_SPENDS_HASH_PERSONALIZATION);
                 tmp_spend_hasher
                     .finalize(&mut sapling_spend)
-                    .map_parser_error()?;
+                    .map_parser_error(file!(), line!())?;
 
                 sapling_spend
             };
@@ -60,7 +64,7 @@ impl Parser {
             ctx.hashers
                 .sapling_hasher
                 .update(&sapling_spend)
-                .map_parser_error()?;
+                .map_parser_error(file!(), line!())?;
 
             // Init outputs hasher
             ctx.hashers
@@ -91,36 +95,42 @@ impl Parser {
             .tx_non_compact_hasher
             .update(&{
                 let mut tmp = [0u8; 32];
-                reader.read_exact(&mut tmp).map_parser_error()?;
+                reader
+                    .read_exact(&mut tmp)
+                    .map_parser_error(file!(), line!())?;
                 tmp
             })
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         // update non compact hash with anchor
         ctx.hashers
             .tx_non_compact_hasher
             .update(&anchor)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         // update compact hash with nullifier
         ctx.hashers
             .tx_compact_hasher
             .update(&{
                 let mut tmp = [0u8; 32];
-                reader.read_exact(&mut tmp).map_parser_error()?;
+                reader
+                    .read_exact(&mut tmp)
+                    .map_parser_error(file!(), line!())?;
                 tmp
             })
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         // update non compact hash with rk
         ctx.hashers
             .tx_non_compact_hasher
             .update(&{
                 let mut tmp = [0u8; 32];
-                reader.read_exact(&mut tmp).map_parser_error()?;
+                reader
+                    .read_exact(&mut tmp)
+                    .map_parser_error(file!(), line!())?;
                 tmp
             })
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         self.sapling_spend_parsed_count += 1;
 
@@ -144,7 +154,7 @@ impl Parser {
         ctx.hashers
             .tx_compact_hasher
             .finalize(&mut sapling_spend_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         debug!(
             "Sapling spend compact digest: {}",
             HexSlice(&sapling_spend_compact_digest)
@@ -154,7 +164,7 @@ impl Parser {
         ctx.hashers
             .tx_non_compact_hasher
             .finalize(&mut sapling_spend_non_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         debug!(
             "Sapling spend non compact digest: {}",
             HexSlice(&sapling_spend_non_compact_digest)
@@ -165,15 +175,15 @@ impl Parser {
         tmp_spend_hasher.init_with_perso(ZCASH_SAPLING_SPENDS_HASH_PERSONALIZATION);
         tmp_spend_hasher
             .update(&sapling_spend_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         tmp_spend_hasher
             .update(&sapling_spend_non_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         let mut sapling_spend = [0u8; 32];
         tmp_spend_hasher
             .finalize(&mut sapling_spend)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         debug!("Sapling spend digest: {}", HexSlice(&sapling_spend));
 
@@ -181,7 +191,7 @@ impl Parser {
         ctx.hashers
             .sapling_hasher
             .update(&sapling_spend)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         if self.sapling_output_count > 0 {
             // Init outputs hasher
@@ -218,8 +228,10 @@ impl Parser {
         ctx.hashers
             .tx_compact_hasher
             .update(&reader.remaining_slice()[..compact_size])
-            .map_parser_error()?;
-        reader.advance(compact_size).map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
+        reader
+            .advance(compact_size)
+            .map_parser_error(file!(), line!())?;
 
         self.sapling_output_parsed_count += 1;
 
@@ -257,8 +269,8 @@ impl Parser {
         ctx.hashers
             .tx_memo_hasher
             .update(memo_data)
-            .map_parser_error()?;
-        reader.advance(to_read).map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
+        reader.advance(to_read).map_parser_error(file!(), line!())?;
         let new_remaining_size = remaining_size - to_read;
 
         if new_remaining_size == 0 {
@@ -301,8 +313,10 @@ impl Parser {
         ctx.hashers
             .tx_non_compact_hasher
             .update(&reader.remaining_slice()[..non_compact_size])
-            .map_parser_error()?;
-        reader.advance(non_compact_size).map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
+        reader
+            .advance(non_compact_size)
+            .map_parser_error(file!(), line!())?;
 
         self.sapling_output_parsed_count += 1;
 
@@ -326,7 +340,7 @@ impl Parser {
         ctx.hashers
             .tx_compact_hasher
             .finalize(&mut sapling_output_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         debug!(
             "Sapling output compact digest: {}",
             HexSlice(&sapling_output_compact_digest)
@@ -336,7 +350,7 @@ impl Parser {
         ctx.hashers
             .tx_memo_hasher
             .finalize(&mut sapling_output_memo_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         debug!(
             "Sapling output memo digest: {}",
             HexSlice(&sapling_output_memo_digest)
@@ -346,7 +360,7 @@ impl Parser {
         ctx.hashers
             .tx_non_compact_hasher
             .finalize(&mut sapling_output_non_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         debug!(
             "Sapling output non compact digest: {}",
             HexSlice(&sapling_output_non_compact_digest)
@@ -358,30 +372,30 @@ impl Parser {
 
         sapling_output_hasher
             .update(&sapling_output_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         sapling_output_hasher
             .update(&sapling_output_memo_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         sapling_output_hasher
             .update(&sapling_output_non_compact_digest)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         let mut sapling_output = [0u8; 32];
         sapling_output_hasher
             .finalize(&mut sapling_output)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         debug!("Sapling output digest: {}", HexSlice(&sapling_output));
 
         // Update sapling full hasher with sapling output digest
         ctx.hashers
             .sapling_hasher
             .update(&sapling_output)
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
         // Update sapling full hasher with sapling balance
         ctx.hashers
             .sapling_hasher
             .update(&self.sapling_balance.to_le_bytes())
-            .map_parser_error()?;
+            .map_parser_error(file!(), line!())?;
 
         if self.orchard_action_count > 0 {
             ctx.hashers
