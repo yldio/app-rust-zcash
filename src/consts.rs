@@ -37,6 +37,7 @@ pub const INS_COMPOSE_MOFN_ADDRESS: u8 = 0xC6;
 pub const INS_GET_POS_SEED: u8 = 0xCA;
 pub const INS_DEBUG: u8 = 0xD0;
 
+// TODO: use per command p1/p2 instead of global ones (see orig app)
 pub const P2_OPERATION_TYPE_OVERWINTER: u8 = 0x04;
 pub const P2_OPERATION_TYPE_SAPLING: u8 = 0x05;
 pub const P2_OPERATION_TYPE_ORCHARD: u8 = 0x06;

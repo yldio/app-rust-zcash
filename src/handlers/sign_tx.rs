@@ -15,7 +15,7 @@
  *  limitations under the License.
  *****************************************************************************/
 use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
-use crate::utils::check_bip44_compliance;
+use crate::utils::{HexSlice, check_bip44_compliance};
 use crate::utils::{bip32_path::Bip32Path, extended_public_key::ExtendedPublicKey};
 use crate::AppSW;
 use alloc::string::String;
@@ -368,6 +368,7 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
     Ok(())
 }
 
+// TODO: split comm append and signature computation
 fn compute_signature_and_append(
     comm: &mut Comm,
     tx_full_hasher: &mut Blake2b_256,

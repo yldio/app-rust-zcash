@@ -64,7 +64,6 @@ class ZcashTests(ExchangeTestRunner):
 class TestsZcash:
     # Run all the tests applicable to our setup: here we don't test fees mismatch, memo mismatch, and Thorswap / LiFi
     @pytest.mark.parametrize('test_to_run', ALL_TESTS_EXCEPT_MEMO_THORSWAP_AND_FEES)
-    @pytest.mark.skip(reason="no way of currently testing this")
     def test_zcash(self, backend, exchange_navigation_helper, test_to_run):
         # Call run_test method of ExchangeTestRunner
         ZcashTests(backend, exchange_navigation_helper).run_test(test_to_run)

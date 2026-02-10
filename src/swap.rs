@@ -363,7 +363,10 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
         info!("Check address successful, derived and received addresses match\n");
         Ok(true) // Success
     } else {
-        error!("Derived and received addresses do NOT match!\n Derived address: {:?}. Reference (hex): {:?} \n", derived_address,received_address);
+        error!(
+            "Derived and received addresses do NOT match!\n Derived address: {:?}. Reference (hex): {:?} \n",
+            derived_address, received_address
+        );
 
         Ok(false) // Failure
     }
