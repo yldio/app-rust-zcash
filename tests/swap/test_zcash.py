@@ -1,28 +1,38 @@
+from importlib.resources import path
 import pytest
 from ledger_app_clients.exchange.test_runner import ExchangeTestRunner, ALL_TESTS_EXCEPT_MEMO_THORSWAP_AND_FEES
-from ledger_app_clients.exchange.cal_helper import CurrencyConfiguration
-from ragger.error import ExceptionRAPDU
-from ragger.utils import create_currency_config
 
 from application_client.zcash_currency_utils import ZCASH_PATH
 from application_client.zcash_command_sender import ZcashCommandSender, Errors as ZcashErrors
+from application_client.zcash_response_unpacker import unpack_get_public_key_response, unpack_trusted_input_response
+from application_client.zcash_verify_sign import check_tx_v5_signature_validity
 
 from . import cal_helper as cal
 
+
+VALID_DESTINATION_1: str = "t1MSQFN2D2Tv7a2EQwsXHXXUc1hVeTJMR8m"
+VALID_DESTINATION_2: str = "t1NNh42d2omDRtdBryQGtedE5sRFmzEMuBw"
+VALID_REFUND: str        = "t1LBsxhHpmugntmxBVBNh6MSvq2CmUE6g9X"
+
+# Map t-addresses to public keys
+RECIPIENT_PUBLIC_KEYS = {
+    VALID_DESTINATION_1: "271C49F4743E2478890F7DC607360935CFF0DE54",
+    VALID_DESTINATION_2: "3160C750E722B32E6BDF2B581F26027755804C4C"
+}
 
 class ZcashTests(ExchangeTestRunner):
     # The coin configuration of our currency. Replace by your own
     currency_configuration = cal.ZCASH_CURRENCY_CONFIGURATION
     # A valid template address of a supposed trade partner.
-    valid_destination_1 = "t1MSQFN2D2Tv7a2EQwsXHXXUc1hVeTJMR8m"
+    valid_destination_1 = VALID_DESTINATION_1
     # A memo to use associated with the destination address if applicable.
     valid_destination_memo_1 = ""
     # A second valid template address of a supposed trade partner.
-    valid_destination_2 = "t1NNh42d2omDRtdBryQGtedE5sRFmzEMuBw"
+    valid_destination_2 = VALID_DESTINATION_2
     # A second memo to use associated with the destination address if applicable.
     valid_destination_memo_2 = ""
     # The address of the Speculos seed on the ZCASH_PATH.
-    valid_refund = "t1LBsxhHpmugntmxBVBNh6MSvq2CmUE6g9X"
+    valid_refund = VALID_REFUND
     valid_refund_memo = ""
 
     # Values we ask the ExchangeTestRunner to use in the test setup
@@ -45,20 +55,57 @@ class ZcashTests(ExchangeTestRunner):
     # The final transaction to craft and send as part of the SWAP finalization.
     # This function will be called by the ExchangeTestRunner in a callback like way
     def perform_final_tx(self, destination, send_amount, fees, memo):
+        LOCKTIME = 0x00
+        EXPIRY = 0x00
+        SIGHASH_TYPE = 0x01
+        TRUSTED_INPUT_IDX = 0
+
         # Create the transaction that will be sent to the device for signing
         print(f"Performing final TX with destination: {destination}, send_amount: {send_amount}, fees: {fees}, memo: {memo}")
-        # Send the TX
-        recipient_publickey = ""
-        if destination == "t1MSQFN2D2Tv7a2EQwsXHXXUc1hVeTJMR8m" :# 1CB8271C49F4743E2478890F7DC607360935CFF0DE548B7D51D2
-            recipient_publickey = "271C49F4743E2478890F7DC607360935CFF0DE54"
 
-        if destination == "t1NNh42d2omDRtdBryQGtedE5sRFmzEMuBw" :# 1CB83160C750E722B32E6BDF2B581F26027755804C4C1345FD5A
-            recipient_publickey = "3160C750E722B32E6BDF2B581F26027755804C4C"
+        recipient_public_key = RECIPIENT_PUBLIC_KEYS[destination]
+        client = ZcashCommandSender(self.backend)
 
-        ZcashCommandSender(self.backend).sign_tx_v5_swap(path=ZCASH_PATH, recipient_publickey=recipient_publickey, send_amount=send_amount)
+        # Get a trusted input to forge the transaction
+        trusted_input_bytes = client.forge_and_get_trusted_input(TRUSTED_INPUT_IDX, send_amount + fees)
+        txid_bytes, _, _, _, _ = unpack_trusted_input_response(trusted_input_bytes)
 
-        # TODO : assert signature validity. Not required but recommended
+        # Get the public key
+        response = client.get_public_key(path=ZCASH_PATH).data
+        public_key, _, _ = unpack_get_public_key_response(response)
 
+        # Forge TX
+        tx_bytes = client.forge_tx_v5(
+            recipient_publickey=recipient_public_key,
+            send_amount=send_amount,
+            prevout_txid=txid_bytes,
+            vout_idx=TRUSTED_INPUT_IDX,
+            locktime=LOCKTIME,
+            expiry=EXPIRY
+        )
+
+        # Send TX
+        # Start hashing TX
+        with client.hash_input(transaction=tx_bytes, trusted_inputs=[trusted_input_bytes]):
+            pass
+
+        # Finalize and sign
+        resp = client.hash_sign(
+            path=ZCASH_PATH,
+            locktime=LOCKTIME,
+            expiry=EXPIRY,
+            sighash_type=SIGHASH_TYPE
+        ).data
+        signature = resp[:-1]
+
+        # Check the signature validity
+        assert check_tx_v5_signature_validity(
+            public_key=public_key,
+            signature=signature,
+            tx_bytes=tx_bytes,
+            input_index=TRUSTED_INPUT_IDX,
+            input_amounts=[send_amount + fees],
+        )
 
 # We use a class to reuse the same Speculos instance (faster performances)
 class TestsZcash:
@@ -67,4 +114,3 @@ class TestsZcash:
     def test_zcash(self, backend, exchange_navigation_helper, test_to_run):
         # Call run_test method of ExchangeTestRunner
         ZcashTests(backend, exchange_navigation_helper).run_test(test_to_run)
-

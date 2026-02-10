@@ -1,4 +1,3 @@
-from pathlib import Path
 import hashlib
 from io import BytesIO
 
@@ -7,8 +6,6 @@ from ecdsa.keys import VerifyingKey
 from ecdsa.util import sigdecode_der
 from application_client.zcash_utils import read_varint
 
-
-ROOT_SCREENSHOT_PATH = Path(__file__).parent.resolve()
 
 ZCASH_HEADERS_HASH_PERSONALIZATION = b"ZTxIdHeadersHash"
 ZCASH_TRANSPARENT_HASH_PERSONALIZATION = b"ZTxIdTranspaHash"
@@ -23,7 +20,7 @@ ZCASH_SAPLING_HASH_PERSONALIZATION = b"ZTxIdSaplingHash"
 ZCASH_ORCHARD_HASH_PERSONALIZATION = b"ZTxIdOrchardHash"
 
 
-def check_signature_validity(
+def check_tx_v5_signature_validity(
     public_key: bytes,
     signature: bytes,
     tx_bytes: bytes,
@@ -31,6 +28,11 @@ def check_signature_validity(
     input_amounts: list[int],
     sighash_type: int = 0x01,
 ) -> bool:
+    # Reset signature first bit (parity info) if set
+    signature = bytearray(signature)
+    signature[0] &= 0xFE
+    signature = bytes(signature)
+
     sighash = _nu5_signature_hash(
         tx_bytes=tx_bytes,
         input_index=input_index,

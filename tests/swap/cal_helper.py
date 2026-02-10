@@ -2,7 +2,7 @@ from ledger_app_clients.exchange.cal_helper import CurrencyConfiguration
 from ragger.bip import pack_derivation_path
 from ragger.utils import create_currency_config
 from application_client.zcash_currency_utils import ZCASH_PATH, ZCASH_TICKER
-from ragger.bip import BtcDerivationPathFormat, bitcoin_pack_derivation_path
+#from ragger.bip import BtcDerivationPathFormat, bitcoin_pack_derivation_path
 
 # ZCASH native currency definition
 ZCASH_CONF = create_currency_config(ZCASH_TICKER, "Zcash", sub_coin_config=None)

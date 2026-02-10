@@ -12,7 +12,6 @@ from application_client.zcash_transaction import (
     split_tx_v5_for_hash_input,
 )
 from application_client.zcash_utils import write_varint
-from application_client.zcash_currency_utils import ZCASH_PATH
 
 MAGIC_TRUSTED_INPUT: int = 0x32
 
@@ -283,169 +282,67 @@ class ZcashCommandSender:
             + expiry.to_bytes(4, byteorder="big"),
         )
 
-    def get_trusted_input_swap(self, path: str, send_amount: int) -> bytes:
+    def forge_and_get_trusted_input(self, trusted_input_idx: int, send_amount: int) -> bytes:
+        amount_hex = send_amount.to_bytes(8, byteorder="little").hex()
 
-        ############################################################
-        # GET TRUSTED INPUT
-        # Instruction: 0x42 (GET_TRUSTED_INPUT)
+        tx = bytes.fromhex(
+            "050000800a27a726b4d0d6c2" + "0000000000000000" + "01" +
+            "7acad6b8eec3158ecee566c0f08ff721d94d44b0cf66ee220ad4f9d1692d2ab5000000006a" +
+            "47304402200d6900cafe4189b9dfebaa965584f39e07cf6086ed5a97c84a5a76035dddcf7302206263c8b7202227e0ab33dd" +
+            "263e04f7a4384d34daa9279bfdebb03bf4b62123590121023e7c3ab4b4a42466f2c72c79afd426a0714fed74f884cd11abb4" +
+            "d76a72fa4a6900000000" +
+            "01" +
+            amount_hex + "1976a914effcdc2e850d1c35fa25029ddbfad5928c9d702f88ac" +
+            "000000"
+        )
 
-        # First APDU: General data with BIP32 path
-        # e04200001100000000050000800a27a726b4d0d6c201
-        # e0=CLA, 42=INS, 00=P1, 00=P2, 11=Lc(17 bytes), data=path data
-        first_data = bytes([0x00, 0x00, 0x00, 0x00]) + bytes([0x05]) + pack_derivation_path(ZCASH_PATH) #bitcoin_pack_derivation_path(BtcDerivationPathFormat.LEGACY, path)
-        rapdu = self.backend.exchange(cla=CLA,
-                                      ins=InsType.GET_TRUSTED_INPUT,
-                                      p1=P1.P1_START,  # 0x00
-                                      p2=P2.P2_NONE,   # 0x00
-                                      data=bytes.fromhex("00000000050000800a27a726b4d0d6c201"))
-        assert rapdu.status == 0x9000, f"Expected 0x9000, got {hex(rapdu.status)}"
+        return self.get_trusted_input(tx, trusted_input_idx=trusted_input_idx).data
 
+    def forge_tx_v5(
+        self,
+        recipient_publickey: str,
+        send_amount: int,
+        prevout_txid: bytes,
+        vout_idx: int,
+        locktime: int,
+        expiry: int
+    ) -> bytes:
+        # Zcash NU5 header fields
+        version = 0x80000005
+        version_group_id = 0x26A7270A
+        consensus_branch_id = 0xC2D6D0B4
+        locktime = 0
+        expiry = 0
 
-        amount = struct.pack("<Q", send_amount)  # amount sent (8 bytes, little-endian)
-        chunks = [
-            bytes.fromhex("7acad6b8eec3158ecee566c0f08ff721d94d44b0cf66ee220ad4f9d1692d2ab5000000006a"),
-            bytes.fromhex("47304402200d6900cafe4189b9dfebaa965584f39e07cf6086ed5a97c84a5a76035dddcf7302206263c8b7202227e0ab33dd"),
-            bytes.fromhex("263e04f7a4384d34daa9279bfdebb03bf4b62123590121023e7c3ab4b4a42466f2c72c79afd426a0714fed74f884cd11abb4"),
-            bytes.fromhex("d76a72fa4a6900000000"),
-            bytes.fromhex("01"),
-            amount+bytes.fromhex("1976a914effcdc2e850d1c35fa25029ddbfad5928c9d702f88ac"),
-            bytes.fromhex("000000"),
-        ]
+        script_pubkey_in = bytes.fromhex("76a914effcdc2e850d1c35fa25029ddbfad5928c9d702f88ac")
+        sequence = bytes.fromhex("00000000")
 
-        # Send transaction input chunks
-        for chunk in chunks:
-            rapdu = self.backend.exchange(cla=CLA,
-                                         ins=InsType.GET_TRUSTED_INPUT,
-                                         p1=P1.P1_MORE,  # 0x80
-                                         p2=P2.P2_NONE,  # 0x00
-                                         data=chunk)
-            assert rapdu.status == 0x9000, f"Expected 0x9000, got {hex(rapdu.status)}"
+        script_pubkey_out = bytes.fromhex("76a914") + bytes.fromhex(recipient_publickey) + bytes.fromhex("88ac")
 
-        # Final APDU: Get the trusted input (txid)
-        # Returns the trusted input bytes
-        final_data = bytes.fromhex("000000000400000000")
-        rapdu = self.backend.exchange(cla=CLA,
-                                     ins=InsType.GET_TRUSTED_INPUT,
-                                     p1=P1.P1_MORE,  # 0x80
-                                     p2=P2.P2_NONE,  # 0x00
-                                     data=final_data)
-        assert rapdu.status == 0x9000, f"Expected 0x9000, got {hex(rapdu.status)}"
+        tx = b""
+        tx += struct.pack("<I", version)
+        tx += struct.pack("<I", version_group_id)
+        tx += struct.pack("<I", consensus_branch_id)
+        tx += struct.pack("<I", locktime)
+        tx += struct.pack("<I", expiry)
 
-        # Return the trusted input (txid) from the response
-        return rapdu.data
+        tx += write_varint(1)  # inputs count
+        tx += prevout_txid + vout_idx.to_bytes(4, byteorder="little")
+        tx += write_varint(len(script_pubkey_in))
+        tx += script_pubkey_in
+        tx += sequence
 
-    def sign_tx_v5_swap(self, path: str, recipient_publickey: str, send_amount: int) :
+        tx += write_varint(1)  # outputs count
+        tx += struct.pack("<Q", send_amount)
+        tx += write_varint(len(script_pubkey_out))
+        tx += script_pubkey_out
 
-        txid_bytes = self.get_trusted_input_swap(path, send_amount)  # transaction bytes would be parsed here
+        # Sapling spends, sapling outputs, orchard actions (all zero for this example)
+        tx += write_varint(0)
+        tx += write_varint(0)
+        tx += write_varint(0)
 
-        print(f"Got trusted input: {txid_bytes.hex()}")
-
-        # Extract parameters from transaction structure
-        # For now, defining as variables in function body with Zcash NU5 defaults
-        version: int = 0x80000005  # Zcash transaction version (NU5)
-        inputs_count: int = 1
-        version_group_id: int = 0x26A7270A  # Zcash NU5 version group ID
-        consensus_branch_id: int = 0xC2D6D0B4 #0x4dec4df0  # Zcash NU5 consensus branch ID
-
-        first_apdu_data: bytes = struct.pack("<I", version)  # version = 0x80000005
-
-        #first_apdu_data += struct.pack("<I", timestamp)
-
-        first_apdu_data += struct.pack("<I", version_group_id)  # 0x26A7270A
-
-        first_apdu_data += struct.pack("<I", consensus_branch_id)  # 0x4dec4df0
-
-        first_apdu_data += write_varint(inputs_count)
-
-        self.backend.exchange(cla=CLA,
-                              ins=InsType.HASH_INPUT_START,
-                              p1=P1.P1_START,  # 0x00 for first round
-                              p2=P2.P2_TRUSTED_INPUT_SAPLING,  # Transaction type (0x05 for sapling)
-                              data=first_apdu_data)
-
-
-        p1_idx: int = 0x80  # P1 for subsequent chunks (0x80 = more data)
-
-
-        script_size = 0x19  # Script size
-
-        # Build first input APDU data
-        # Structure: flags (0x01, 0x38) + txid (32 bytes) + script_size (1 byte)
-        input_apdu_data = bytes([0x01, 0x38]) + txid_bytes + bytes([script_size])
-
-        self.backend.exchange(cla=CLA,
-                              ins=InsType.HASH_INPUT_START,
-                              p1=p1_idx,  # 0x80
-                              p2=P2.P2_CONTINUE_HASHING,  # 0x05 (sapling) - keep same P2 for input data
-                              data=input_apdu_data)
-
-        # Send input script (scriptSig + sequence)
-        # Example script: P2PKH script (76a914...) + sequence (00000000)
-        script_data_hex = "76a914effcdc2e850d1c35fa25029ddbfad5928c9d702f88ac00000000"
-        script_data = bytes.fromhex(script_data_hex)
-
-        # Send script with P2=0x80 (more data) to indicate more transaction data follows
-        self.backend.exchange(cla=CLA,
-                              ins=InsType.HASH_INPUT_START,
-                              p1=p1_idx,  # 0x80
-                              p2=P2.P2_CONTINUE_HASHING,  # 0x80 (more data to follow)
-                              data=script_data)
-
-        amount = struct.pack("<Q", send_amount)
-        address = bytes.fromhex(recipient_publickey)
-        finalize_data = bytes.fromhex("01") + amount + bytes.fromhex("1976a914") + address + bytes.fromhex("88ac")
-        rapdu = self.backend.exchange(cla=CLA,
-                                      ins=InsType.HASH_INPUT_FINALIZE_FULL,
-                                      p1=P1.P1_MORE,  # 0x80
-                                      p2=P2.P2_NONE,  # 0x00
-                                      data=finalize_data)
-        assert rapdu.status == 0x9000, f"Expected 0x9000, got {hex(rapdu.status)}"
-
-        sign_data = bytes.fromhex("0000000000000100000000")
-        rapdu = self.backend.exchange(cla=CLA,
-                                     ins=InsType.HASH_SIGN,
-                                     p1=P1.P1_START,  # 0x00
-                                     p2=P2.P2_NONE,   # 0x00
-                                     data=sign_data)
-        assert rapdu.status == 0x9000, f"Expected 0x9000, got {hex(rapdu.status)}"
-
-        #OUTPUTS
-        done_data = bytes.fromhex("050000800a27a726b4d0d6c201")  # BIP32 path
-        rapdu = self.backend.exchange(cla=CLA,
-                                     ins=InsType.HASH_INPUT_START,
-                                     p1=P1.P1_START,  # 0x00
-                                     p2=P2.P2_CONTINUE_HASHING,   # 0x80 (indicates done/hash completion)
-                                     data=done_data)
-        assert rapdu.status == 0x9000, f"Expected 0x9000, got {hex(rapdu.status)}"
-
-        script_size = 0x19  # Output index (25 in decimal)
-        input_apdu_data = bytes([0x01, 0x38]) + txid_bytes + bytes([script_size])
-        rapdu = self.backend.exchange(cla=CLA,
-                                      ins=InsType.HASH_INPUT_START,
-                                      p1=P1.P1_MORE,  # 0x80
-                                      p2=P2.P2_CONTINUE_HASHING,  # 0x80 (more data)
-                                      data=input_apdu_data)
-        assert rapdu.status == 0x9000, f"Expected 0x9000, got {hex(rapdu.status)}"
-
-        script_data_hex = "76a914effcdc2e850d1c35fa25029ddbfad5928c9d702f88ac00000000"
-        script_data = bytes.fromhex(script_data_hex)
-        rapdu = self.backend.exchange(cla=CLA,
-                                      ins=InsType.HASH_INPUT_START,
-                                      p1=P1.P1_MORE,  # 0x80
-                                      p2=P2.P2_CONTINUE_HASHING,  # 0x80 (more data)
-                                      data=script_data)
-        assert rapdu.status == 0x9000, f"Expected 0x9000, got {hex(rapdu.status)}"
-
-        # SIGN REQUEST - HASH_SIGN (0x48)
-        sign_request_data = bytes.fromhex("058000002c8000008580000002000000000000000200000000000100000000")
-        rapdu = self.backend.exchange(cla=CLA,
-                                     ins=InsType.HASH_SIGN,
-                                     p1=P1.P1_START,  # 0x00
-                                     p2=P2.P2_NONE,   # 0x00
-                                     data=sign_request_data)
-        assert rapdu.status == 0x9000, f"Expected 0x9000, got {hex(rapdu.status)}"
-        #sig1 = rapdu.data  # Signature is in the response data
-
+        return tx
 
     def get_async_response(self) -> Optional[RAPDU]:
         return self.backend.last_async_response

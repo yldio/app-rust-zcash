@@ -5,7 +5,7 @@ from ragger.error import ExceptionRAPDU
 
 from application_client.zcash_command_sender import ZcashCommandSender, Errors
 from application_client.zcash_response_unpacker import unpack_get_public_key_response
-from standalone.utils import check_signature_validity
+from application_client.zcash_verify_sign import check_tx_v5_signature_validity
 
 
 
@@ -46,7 +46,7 @@ def test_sign_tx_v5_simple(backend, scenario_navigator):
     resp = client.hash_sign(path=path, locktime=LOCKTIME, expiry=EXPIRY, sighash_type=SIGHASH_TYPE).data
     signature = resp[:-1]
 
-    assert check_signature_validity(
+    assert check_tx_v5_signature_validity(
         public_key,
         signature,
         TX_BYTES,
@@ -93,7 +93,7 @@ def test_sign_tx_v5_change(backend, scenario_navigator):
     resp = client.hash_sign(path=path, locktime=LOCKTIME, expiry=EXPIRY, sighash_type=SIGHASH_TYPE).data
     signature = resp[:-1]
 
-    assert check_signature_validity(
+    assert check_tx_v5_signature_validity(
         public_key,
         signature,
         TX_BYTES,
