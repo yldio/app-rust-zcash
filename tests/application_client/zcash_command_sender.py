@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from enum import IntEnum
 import struct
 from typing import Generator, List, Optional, Tuple
@@ -69,6 +70,14 @@ class Errors(IntEnum):
 def split_message(message: bytes, max_size: int) -> List[bytes]:
     return [message[x : x + max_size] for x in range(0, len(message), max_size)]
 
+@dataclass
+class ForgeTxParams:
+    recipient_publickey: str
+    send_amount: int
+    prevout_txid: bytes
+    vout_idx: int
+    locktime: int
+    expiry: int
 
 class ZcashCommandSender:
     def __init__(self, backend: BackendInterface) -> None:
@@ -300,24 +309,19 @@ class ZcashCommandSender:
 
     def forge_tx_v5(
         self,
-        recipient_publickey: str,
-        send_amount: int,
-        prevout_txid: bytes,
-        vout_idx: int,
-        locktime: int,
-        expiry: int
+        params: ForgeTxParams
     ) -> bytes:
         # Zcash NU5 header fields
         version = 0x80000005
         version_group_id = 0x26A7270A
         consensus_branch_id = 0xC2D6D0B4
-        locktime = 0
-        expiry = 0
+        locktime = params.locktime
+        expiry = params.expiry
 
         script_pubkey_in = bytes.fromhex("76a914effcdc2e850d1c35fa25029ddbfad5928c9d702f88ac")
         sequence = bytes.fromhex("00000000")
 
-        script_pubkey_out = bytes.fromhex("76a914") + bytes.fromhex(recipient_publickey) + bytes.fromhex("88ac")
+        script_pubkey_out = bytes.fromhex("76a914") + bytes.fromhex(params.recipient_publickey) + bytes.fromhex("88ac")
 
         tx = b""
         tx += struct.pack("<I", version)
@@ -327,13 +331,13 @@ class ZcashCommandSender:
         tx += struct.pack("<I", expiry)
 
         tx += write_varint(1)  # inputs count
-        tx += prevout_txid + vout_idx.to_bytes(4, byteorder="little")
+        tx += params.prevout_txid + params.vout_idx.to_bytes(4, byteorder="little")
         tx += write_varint(len(script_pubkey_in))
         tx += script_pubkey_in
         tx += sequence
 
         tx += write_varint(1)  # outputs count
-        tx += struct.pack("<Q", send_amount)
+        tx += struct.pack("<Q", params.send_amount)
         tx += write_varint(len(script_pubkey_out))
         tx += script_pubkey_out
 

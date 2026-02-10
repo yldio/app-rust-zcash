@@ -15,8 +15,8 @@
  *  limitations under the License.
  *****************************************************************************/
 use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
-use crate::utils::{HexSlice, check_bip44_compliance};
 use crate::utils::{bip32_path::Bip32Path, extended_public_key::ExtendedPublicKey};
+use crate::utils::{check_bip44_compliance, HexSlice};
 use crate::AppSW;
 use alloc::string::String;
 use alloc::vec::Vec;

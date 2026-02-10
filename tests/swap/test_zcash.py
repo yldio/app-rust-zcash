@@ -3,7 +3,7 @@ import pytest
 from ledger_app_clients.exchange.test_runner import ExchangeTestRunner, ALL_TESTS_EXCEPT_MEMO_THORSWAP_AND_FEES
 
 from application_client.zcash_currency_utils import ZCASH_PATH
-from application_client.zcash_command_sender import ZcashCommandSender, Errors as ZcashErrors
+from application_client.zcash_command_sender import ForgeTxParams, ZcashCommandSender, Errors as ZcashErrors
 from application_client.zcash_response_unpacker import unpack_get_public_key_response, unpack_trusted_input_response
 from application_client.zcash_verify_sign import check_tx_v5_signature_validity
 
@@ -76,12 +76,14 @@ class ZcashTests(ExchangeTestRunner):
 
         # Forge TX
         tx_bytes = client.forge_tx_v5(
-            recipient_publickey=recipient_public_key,
-            send_amount=send_amount,
-            prevout_txid=txid_bytes,
-            vout_idx=TRUSTED_INPUT_IDX,
-            locktime=LOCKTIME,
-            expiry=EXPIRY
+            ForgeTxParams(
+                recipient_publickey=recipient_public_key,
+                send_amount=send_amount,
+                prevout_txid=txid_bytes,
+                vout_idx=TRUSTED_INPUT_IDX,
+                locktime=LOCKTIME,
+                expiry=EXPIRY
+            )
         )
 
         # Send TX

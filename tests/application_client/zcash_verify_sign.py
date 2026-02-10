@@ -6,6 +6,7 @@ from ecdsa.keys import VerifyingKey
 from ecdsa.util import sigdecode_der
 from application_client.zcash_utils import read_varint
 
+# pylint: disable=R0917, R0914
 
 ZCASH_HEADERS_HASH_PERSONALIZATION = b"ZTxIdHeadersHash"
 ZCASH_TRANSPARENT_HASH_PERSONALIZATION = b"ZTxIdTranspaHash"
@@ -18,7 +19,6 @@ ZCASH_TRANSPARENT_INPUT_HASH_PERSONALIZATION = b"Zcash___TxInHash"
 ZCASH_TX_PERSONALIZATION_PREFIX = b"ZcashTxHash_"
 ZCASH_SAPLING_HASH_PERSONALIZATION = b"ZTxIdSaplingHash"
 ZCASH_ORCHARD_HASH_PERSONALIZATION = b"ZTxIdOrchardHash"
-
 
 def check_tx_v5_signature_validity(
     public_key: bytes,
@@ -54,7 +54,7 @@ def _nu5_signature_hash(
     inputs = tx["inputs"]
     outputs = tx["outputs"]
 
-    if not (0 <= input_index < len(inputs)):
+    if not 0 <= input_index < len(inputs):
         raise ValueError(f"Input index out of range: {input_index}")
 
     if len(input_amounts) != len(inputs):
