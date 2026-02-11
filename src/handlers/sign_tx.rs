@@ -14,19 +14,20 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *****************************************************************************/
-use crate::log::{debug, error, info};
 use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
-use crate::utils::{
-    check_bip44_compliance, compress_public_key, derive_public_key, public_key_hash160, Bip32Path,
-    HexSlice, PubKeyWithCC,
-};
+use crate::utils::check_bip44_compliance;
+use crate::utils::{bip32_path::Bip32Path, extended_public_key::ExtendedPublicKey};
 use crate::AppSW;
 use alloc::string::String;
 use alloc::vec::Vec;
-use ledger_device_sdk::ecc::{Secp256k1, SeedDerive as _};
 use ledger_device_sdk::hash::blake2::Blake2b_256;
 use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::io::Comm;
+use ledger_device_sdk::{
+    debug,
+    ecc::{Secp256k1, SeedDerive as _},
+    error, info,
+};
 
 use ledger_device_sdk::libcall::swap::CreateTxParams;
 use ledger_device_sdk::nbgl::NbglHomeAndSettings;
@@ -237,15 +238,9 @@ pub fn handler_hash_input_finalize_full(
     if is_change_info {
         let path: Bip32Path = data.try_into()?;
 
-        let PubKeyWithCC {
-            public_key,
-            public_key_len,
-            ..
-        } = derive_public_key(&path)?;
-        let public_key = &public_key[..public_key_len];
-        let comp_public_key = compress_public_key(public_key)?;
+        let public_key_with_cc = ExtendedPublicKey::try_from(&path)?;
 
-        ctx.tx_info.change_pk_hash = public_key_hash160(&comp_public_key)?;
+        ctx.tx_info.change_pk_hash = public_key_with_cc.compressed_public_key_hash160()?;
 
         info!("Change pk hash: {}", HexSlice(&ctx.tx_info.change_pk_hash));
 
@@ -384,7 +379,7 @@ fn compute_signature_and_append(
 
     debug!("Final TX hash: {}", HexSlice(&hash));
 
-    let (p, _chain_code) = Secp256k1::derive_from(path.as_ref());
+    let (p, _chain_code) = Secp256k1::derive_from(path.as_slice());
 
     let (mut sig, sig_len, info) = if deterministic_sign {
         p.deterministic_sign(&hash)

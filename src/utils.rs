@@ -1,171 +1,14 @@
-use alloc::{string::String, vec::Vec};
+use crate::{
+    log::{debug, error},
+    utils::bip32_path::Bip32Path,
+};
 
-use crate::log::{debug, error};
-
-pub const TRANSPARENT_ADDRESS_B58_LEN: usize = 35;
-
+pub mod base58_address;
+pub mod bip32_path;
 pub mod blake2b_256_pers;
+pub mod extended_public_key;
+pub mod hashers;
 use crate::AppSW;
-
-/// BIP32 derivation path stored as a vector of u32 components.
-///
-/// Each component represents one level in the path (e.g., m/44'/1'/0'/0/0 has 5 components).
-/// Hardened derivation is indicated by setting the high bit (>= 0x80000000).
-#[derive(Default, Debug)]
-pub struct Bip32Path(Vec<u32>);
-
-impl AsRef<[u32]> for Bip32Path {
-    fn as_ref(&self) -> &[u32] {
-        &self.0
-    }
-}
-
-impl TryFrom<&[u8]> for Bip32Path {
-    type Error = AppSW;
-
-    /// Constructs a [`Bip32Path`] from APDU-encoded bytes.
-    ///
-    /// # Format
-    ///
-    /// - First byte: Number of path components (e.g., 5 for m/44'/1'/0'/0/0)
-    /// - Remaining bytes: Big-endian u32 components (4 bytes each)
-    ///
-    /// # Example
-    ///
-    /// For path m/44'/1'/0'/0/0:
-    /// ```text
-    /// [0x05, 0x8000002C, 0x80000001, 0x80000000, 0x00000000, 0x00000000]
-    /// ```
-    ///
-    /// # Note
-    ///
-    /// This uses `Vec` for dynamic allocation, which is fine for normal APDU handlers
-    /// but CANNOT be used in swap's `check_address` or `get_printable_amount` due to
-    /// BSS memory sharing with the Exchange app.
-    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        // Check data length
-        if data.is_empty() // At least the length byte is required
-            || (data[0] as usize * 4 != data.len() - 1)
-        {
-            return Err(AppSW::WrongApduLength);
-        }
-
-        Ok(Bip32Path(
-            data[1..]
-                .chunks(4)
-                .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
-                .collect(),
-        ))
-    }
-}
-
-pub struct PubKeyWithCC {
-    pub public_key: [u8; 65],
-    pub public_key_len: usize,
-    pub chain_code: [u8; 32],
-}
-
-pub fn derive_public_key(path: &Bip32Path) -> Result<PubKeyWithCC, AppSW> {
-    use ledger_device_sdk::ecc::{Secp256k1, SeedDerive};
-    let (k, cc) = Secp256k1::derive_from(path.as_ref());
-
-    let pk = k.public_key().map_err(|_| AppSW::IncorrectData)?;
-    let code = cc.ok_or(AppSW::IncorrectData)?;
-    Ok(PubKeyWithCC {
-        public_key: pk.pubkey,
-        public_key_len: pk.keylength,
-        chain_code: code.value,
-    })
-}
-
-pub fn public_key_hash160(public_key: &[u8]) -> Result<[u8; 20], AppSW> {
-    use ledger_device_sdk::hash::{ripemd::Ripemd160, sha2::Sha2_256, HashInit};
-
-    let mut sha256 = Sha2_256::new();
-    let mut sha256_output: [u8; 32] = [0u8; 32];
-    sha256
-        .hash(public_key, &mut sha256_output)
-        .map_err(|_| AppSW::IncorrectData)?;
-
-    let mut ripemd160 = Ripemd160::new();
-    let mut ripemd160_output: [u8; 20] = [0u8; 20];
-    ripemd160
-        .hash(&sha256_output, &mut ripemd160_output)
-        .map_err(|_| AppSW::IncorrectData)?;
-
-    debug!("PubKey SHA256: {:02X?}", &sha256_output);
-    debug!("PubKey HASH160: {:02X?}", &ripemd160_output);
-
-    Ok(ripemd160_output)
-}
-
-fn compute_checksum(input: &[u8]) -> [u8; 4] {
-    use ledger_device_sdk::hash::{sha2::Sha2_256, HashInit};
-
-    let mut sha256 = Sha2_256::new();
-    let mut sha256_output: [u8; 32] = [0u8; 32];
-    sha256.hash(input, &mut sha256_output).unwrap();
-
-    let mut sha256_2 = Sha2_256::new();
-    let mut sha256_2_output: [u8; 32] = [0u8; 32];
-    sha256_2.hash(&sha256_output, &mut sha256_2_output).unwrap();
-
-    debug!("Checksum: {:02X?}", &sha256_2_output[0..4]);
-
-    [
-        sha256_2_output[0],
-        sha256_2_output[1],
-        sha256_2_output[2],
-        sha256_2_output[3],
-    ]
-}
-
-pub fn compress_public_key(public_key: &[u8]) -> Result<[u8; 33], AppSW> {
-    if public_key.len() != 65 {
-        return Err(AppSW::IncorrectData);
-    }
-    let mut compressed_pk = [0u8; 33];
-    compressed_pk[0] = if public_key[64] & 1 == 1 { 0x03 } else { 0x02 };
-    compressed_pk[1..33].copy_from_slice(&public_key[1..33]);
-    Ok(compressed_pk)
-}
-
-// T-address P2PKH prefix (mainnet)
-const P2PKH_PREFIX: [u8; 2] = [0x1C, 0xB8];
-// T-address P2PKH prefix (testnet)
-const _P2PKH_PREFIX: [u8; 2] = [0x1D, 0x25];
-
-pub fn public_key_to_address_base58(
-    public_key: &[u8],
-    is_hashed: bool,
-) -> Result<[u8; TRANSPARENT_ADDRESS_B58_LEN], AppSW> {
-    // buffer for deriving address
-    // PREFIX(2 bytes) + HASH160 of Public_key(20 bytes)+ checksum (4 bytes)
-    let mut buf = [0u8; 26];
-
-    // For Zcash, the address is the HASH160 of the public key
-    if is_hashed {
-        buf[0..22].copy_from_slice(&public_key[0..22]);
-    } else {
-        debug!("To hash: {:02X?}", &public_key);
-        let pubkey_hash160 = public_key_hash160(public_key)?;
-        buf[0] = P2PKH_PREFIX[0];
-        buf[1] = P2PKH_PREFIX[1];
-        buf[2..22].copy_from_slice(&pubkey_hash160);
-    }
-
-    let checksum = compute_checksum(&buf[0..22]);
-    buf[22..26].copy_from_slice(&checksum);
-
-    let mut address_base58 = [0u8; TRANSPARENT_ADDRESS_B58_LEN];
-    let _written = bs58::encode(&buf[..26])
-        .onto(&mut address_base58[..])
-        .map_err(|_| AppSW::IncorrectData)?;
-
-    //transparent addresses begin with "t" and are followed by 34 alphanumeric characters
-    debug!("address_base58 {:?}", &address_base58);
-    Ok(address_base58)
-}
 
 pub enum Endianness {
     Big,
@@ -321,38 +164,6 @@ pub fn check_output_displayable(
     CheckDispOutput::Displayable
 }
 
-pub fn get_address_from_output_script(script: &[u8]) -> Result<String, AppSW> {
-    const COIN_P2PKH_VERSION: u16 = 7352;
-    const ADDRESS_OFFSET: usize = 3;
-    const VERSION_SIZE: usize = 2;
-    const ADDRESS_SIZE: usize = 22;
-
-    if output_script_is_op_return(script) {
-        error!("Unsupported OP_RETURN script");
-        return Err(AppSW::IncorrectData);
-    }
-
-    if !output_script_is_regular(script) {
-        error!("Unsupported script type");
-        return Err(AppSW::IncorrectData);
-    }
-
-    let mut address = [0u8; ADDRESS_SIZE];
-    let version = COIN_P2PKH_VERSION.to_be_bytes();
-
-    address[..VERSION_SIZE].copy_from_slice(&version);
-    address[VERSION_SIZE..].copy_from_slice(&script[ADDRESS_OFFSET..ADDRESS_OFFSET + 20]);
-
-    let bytes: [u8; TRANSPARENT_ADDRESS_B58_LEN] = public_key_to_address_base58(&address, true)?;
-    debug!("address_bytes: {}", HexSlice(&bytes));
-    let address_base58 = str::from_utf8(&bytes)
-        .map_err(|_| AppSW::ExecutionError)?
-        .into();
-    debug!("address_string: {}", &address_base58);
-
-    Ok(address_base58)
-}
-
 pub fn check_bip44_compliance(path: &Bip32Path, is_change_path: bool) -> bool {
     const BIP44_PATH_LEN: usize = 5;
     const BIP44_PURPOSE_OFFSET: usize = 0;
@@ -364,7 +175,7 @@ pub fn check_bip44_compliance(path: &Bip32Path, is_change_path: bool) -> bool {
     const MAX_BIP44_ACCOUNT_RECOMMENDED: u32 = 100;
     const MAX_BIP44_ADDRESS_INDEX_RECOMMENDED: u32 = 50000;
 
-    let path = path.as_ref();
+    let path = path.as_slice();
 
     if path.len() != BIP44_PATH_LEN {
         error!("Bad Bip44 path len");

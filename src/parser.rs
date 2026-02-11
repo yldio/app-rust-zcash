@@ -1,7 +1,7 @@
 use ::orchard::bundle::commitments::{
     ZCASH_ORCHARD_ACTIONS_COMPACT_HASH_PERSONALIZATION, ZCASH_ORCHARD_HASH_PERSONALIZATION,
 };
-use alloc::vec::Vec;
+use alloc::{string::ToString, vec::Vec};
 use core::{iter, mem};
 use zcash_primitives::transaction::sighash_v5::{
     ZCASH_TRANSPARENT_AMOUNTS_HASH_PERSONALIZATION, ZCASH_TRANSPARENT_INPUT_HASH_PERSONALIZATION,
@@ -25,19 +25,19 @@ use zcash_protocol::value::Zatoshis;
 use zcash_transparent::address::Script;
 use zcash_transparent::bundle::OutPoint;
 
-use crate::app_ui::sign::ui_display_tx;
-use crate::consts::{MAX_OUTPUTS_NUMBER, MAX_SCRIPT_SIZE, TRUSTED_INPUT_TOTAL_SIZE};
 use crate::handlers::sign_tx::{Hashers, TrustedInputInfo, TxInfo, TxOutput, TxSigningState};
 use crate::log::{debug, error, info};
 use crate::parser::compute::{finalize_signature_hash, finalize_signature_input_hash};
 use crate::parser::reader::ByteReader;
 use crate::settings::Settings;
 use crate::utils::blake2b_256_pers::{AsWriter, Blake2b256Personalization};
-use crate::utils::{
-    check_output_displayable, get_address_from_output_script, secure_memcmp, CheckDispOutput,
-    HexSlice,
-};
+use crate::utils::{check_output_displayable, secure_memcmp, CheckDispOutput, HexSlice};
 use crate::AppSW;
+use crate::{app_ui::sign::ui_display_tx, utils::base58_address::Base58Address};
+use crate::{
+    consts::{MAX_OUTPUTS_NUMBER, MAX_SCRIPT_SIZE, TRUSTED_INPUT_TOTAL_SIZE},
+    utils::base58_address::ToBase58Address,
+};
 use error::ok;
 
 pub use error::{ParserError, ParserSourceError};
@@ -843,7 +843,9 @@ impl OutputParser {
                             return Err(ParserError::from_str("Multiple change outputs detected"));
                         }
 
-                        let address = ok!(get_address_from_output_script(&script.0 .0));
+                        let address =
+                            ok!(Base58Address::from_output_script(&script.0 .0)).to_string();
+                        debug!("address_string: {}", &address);
 
                         ctx.tx_info.outputs.push(TxOutput {
                             amount: self.current_output_amount,
