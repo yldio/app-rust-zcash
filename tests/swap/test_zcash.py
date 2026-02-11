@@ -1,6 +1,6 @@
 from importlib.resources import path
 import pytest
-from ledger_app_clients.exchange.test_runner import ExchangeTestRunner, ALL_TESTS_EXCEPT_MEMO_THORSWAP_AND_FEES
+from ledger_app_clients.exchange.test_runner import ExchangeTestRunner, ALL_TESTS_EXCEPT_MEMO_AND_THORSWAP
 
 from application_client.zcash_currency_utils import ZCASH_PATH
 from application_client.zcash_command_sender import ForgeTxParams, ZcashCommandSender, Errors as ZcashErrors
@@ -38,8 +38,8 @@ class ZcashTests(ExchangeTestRunner):
     # Values we ask the ExchangeTestRunner to use in the test setup
     valid_send_amount_1 = 1000000
     valid_send_amount_2 = 666000
-    valid_fees_1 = 0
-    valid_fees_2 = 0
+    valid_fees_1 = 10000
+    valid_fees_2 = 6600
 
     # Fake addresses to test the address rejection code.
     fake_refund = "abcdabcd"
@@ -51,6 +51,7 @@ class ZcashTests(ExchangeTestRunner):
     signature_refusal_error_code = ZcashErrors.SW_DENY
     wrong_amount_error_code = ZcashErrors.SW_INVALID_TRANSACTION
     wrong_destination_error_code = ZcashErrors.SW_INVALID_TRANSACTION
+    wrong_fees_error_code = ZcashErrors.SW_INVALID_TRANSACTION
 
     # The final transaction to craft and send as part of the SWAP finalization.
     # This function will be called by the ExchangeTestRunner in a callback like way
@@ -112,7 +113,7 @@ class ZcashTests(ExchangeTestRunner):
 # We use a class to reuse the same Speculos instance (faster performances)
 class TestsZcash:
     # Run all the tests applicable to our setup: here we don't test fees mismatch, memo mismatch, and Thorswap / LiFi
-    @pytest.mark.parametrize('test_to_run', ALL_TESTS_EXCEPT_MEMO_THORSWAP_AND_FEES)
+    @pytest.mark.parametrize('test_to_run', ALL_TESTS_EXCEPT_MEMO_AND_THORSWAP)
     def test_zcash(self, backend, exchange_navigation_helper, test_to_run):
         # Call run_test method of ExchangeTestRunner
         ZcashTests(backend, exchange_navigation_helper).run_test(test_to_run)
