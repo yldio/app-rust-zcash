@@ -42,7 +42,7 @@ opt-level = 'z'
 lto = 'fat'
 
 [features]
-default = []
+default = ["ledger_device_sdk/nano_nbgl"]
 
 # Enables debug logging
 debug = [
