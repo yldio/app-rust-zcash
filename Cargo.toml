@@ -52,6 +52,7 @@ default = [
 ]
 
 debug = ["ledger_device_sdk/debug"]
+legacy_path = []
 
 [package.metadata.ledger]
 curve = ["secp256k1"]
