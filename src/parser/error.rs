@@ -2,9 +2,9 @@ use core2::io::Error as IoError;
 
 use ledger_device_sdk::hash::HashError;
 use ledger_device_sdk::hmac::HMACError;
-
 use ledger_device_sdk::libcall::swap::SwapError;
 use ledger_device_sdk::libcall::SwapAppErrorCodeTrait;
+
 use zcash_protocol::value::BalanceError;
 
 use crate::swap::SwapAppErrorCode;

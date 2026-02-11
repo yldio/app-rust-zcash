@@ -41,19 +41,13 @@ use app_ui::menu::ui_menu_main;
 use handlers::{
     get_public_key::handler_get_public_key, get_version::handler_get_version, sign_tx::TxContext,
 };
+use ledger_device_sdk::nbgl::StatusType;
 use ledger_device_sdk::{io::StatusWords, libcall::swap::CreateTxParams};
 use ledger_device_sdk::{
     io::{ApduHeader, Comm, Reply},
     nbgl::init_comm,
     random::rand_bytes,
 };
-
-ledger_device_sdk::set_panic!(panic_handler);
-
-// Required for using String, Vec, format!...
-extern crate alloc;
-
-use ledger_device_sdk::nbgl::StatusType;
 
 use crate::{
     consts::{
@@ -69,6 +63,11 @@ use crate::{
     log::{debug, error},
     settings::Settings,
 };
+
+// Required for using String, Vec, format!...
+extern crate alloc;
+
+ledger_device_sdk::set_panic!(panic_handler);
 
 pub const P1_FIRST: u8 = 0x00;
 pub const P1_NEXT: u8 = 0x80;
