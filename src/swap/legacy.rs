@@ -1,35 +1,13 @@
 use ledger_device_sdk::libcall::swap::CheckAddressParams;
-#[cfg(feature = "legacy_path")]
+
 use ledger_secure_sdk_sys::{check_address_parameters_t, libargs_s__bindgen_ty_1, libargs_t};
-pub const DEFAULT_COIN_CONFIG_BUF_SIZE: usize = 16;
-pub const DEFAULT_ADDRESS_BUF_SIZE: usize = 64;
-pub const DEFAULT_ADDRESS_EXTRA_ID_BUF_SIZE: usize = 32;
 
-#[cfg(feature = "legacy_path")]
 const DPATH_STAGE_SIZE: usize = 16;
-
-pub fn get_check_address_params_legacy_wrapper(
-    arg0: u32,
-) -> CheckAddressParams<
-    DEFAULT_COIN_CONFIG_BUF_SIZE,
-    DEFAULT_ADDRESS_BUF_SIZE,
-    DEFAULT_ADDRESS_EXTRA_ID_BUF_SIZE,
-> {
-    #[cfg(feature = "legacy_path")]
-    {
-        get_check_address_params_legacy(arg0)
-    }
-
-    #[cfg(not(feature = "legacy_path"))]
-    {
-        ledger_device_sdk::libcall::swap::get_check_address_params(arg0)
-    }
-}
 
 /// patched verion of swap::get_check_address_params to support legacy path
 /// differs in that path contain extra bit
-#[cfg(feature = "legacy_path")]
-pub fn get_check_address_params_legacy<
+
+pub fn get_check_address_params<
     const COIN_CONFIG_BUF_SIZE: usize,
     const ADDRESS_BUF_SIZE: usize,
     const ADDRESS_EXTRA_ID_BUF_SIZE: usize,
@@ -113,7 +91,6 @@ pub fn get_check_address_params_legacy<
 /// Helper function to read a null-terminated C string into a fixed-size buffer
 /// Returns the buffer and the actual length read
 /// Prints a warning if truncation occurs
-#[cfg(feature = "legacy_path")]
 fn read_c_string<const N: usize>(ptr: *const i8) -> ([u8; N], usize) {
     let mut buffer = [0u8; N];
 
