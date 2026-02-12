@@ -302,7 +302,7 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
         };
         show_status_and_home_if_needed(&ins, &mut tx_ctx, &status);
 
-        // Cash the flag before potential ctx reset
+        // Cache the flag before potential ctx reset
         let is_signing_finished = tx_ctx.is_signing_finished();
 
         // Reset transaction context in case of error during transaction signing
