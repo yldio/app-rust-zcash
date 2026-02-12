@@ -42,13 +42,12 @@ opt-level = 'z'
 lto = 'fat'
 
 [features]
-default = ["ledger_device_sdk/nano_nbgl"]
+default = ["ledger_device_sdk/nano_nbgl", "legacy_path"]
 
 # Enables debug logging
-debug = [
-    "ledger_device_sdk/debug",
-    "ledger_device_sdk/log_debug"
-]
+debug = ["ledger_device_sdk/debug", "ledger_device_sdk/log_debug"]
+
+legacy_path = []
 
 [package.metadata.ledger]
 curve = ["secp256k1"]

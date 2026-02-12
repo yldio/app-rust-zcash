@@ -56,6 +56,15 @@ use ledger_device_sdk::libcall::{
     SwapAppErrorCodeTrait,
 };
 
+#[cfg(feature = "legacy_path")]
+mod legacy;
+
+#[cfg(feature = "legacy_path")]
+pub use legacy::get_check_address_params;
+
+#[cfg(not(feature = "legacy_path"))]
+pub use swap::get_check_address_params;
+
 use crate::handlers::sign_tx::TxOutput;
 use crate::{
     consts::{ZCASH_DECIMALS, ZCASH_TICKER},
@@ -271,7 +280,7 @@ pub fn swap_main(arg0: u32) {
     match cmd {
         LibCallCommand::SwapCheckAddress => {
             debug!("Received SwapCheckAddress command\n");
-            let mut params = swap::get_check_address_params(arg0);
+            let mut params = get_check_address_params(arg0);
             let res = check_address(&params).unwrap_or_else(|e| {
                 debug!("Swap error: {:?}", e);
                 false
