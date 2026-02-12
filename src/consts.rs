@@ -37,11 +37,23 @@ pub const INS_COMPOSE_MOFN_ADDRESS: u8 = 0xC6;
 pub const INS_GET_POS_SEED: u8 = 0xCA;
 pub const INS_DEBUG: u8 = 0xD0;
 
-// TODO: use per command p1/p2 instead of global ones (see orig app)
-pub const P2_OPERATION_TYPE_OVERWINTER: u8 = 0x04;
-pub const P2_OPERATION_TYPE_SAPLING: u8 = 0x05;
-pub const P2_OPERATION_TYPE_ORCHARD: u8 = 0x06;
-pub const P2_CONTINUE_HASHING: u8 = 0x80;
+pub const P1_FIRST: u8 = 0x00;
+pub const P1_NEXT: u8 = 0x80;
+
+pub const P1_GET_PUBLIC_KEY_NO_DISPLAY: u8 = 0x00;
+pub const P1_GET_PUBLIC_KEY_DISPLAY: u8 = 0x01;
+
+pub const P1_HASH_INPUT_START_FIRST: u8 = 0x00;
+pub const P1_HASH_INPUT_START_NEXT: u8 = 0x80;
+pub const P2_HASH_INPUT_START_NEW: u8 = 0x00;
+pub const P2_HASH_INPUT_START_OVERWINTER: u8 = 0x04;
+pub const P2_HASH_INPUT_START_SAPLING: u8 = 0x05;
+pub const P2_HASH_INPUT_START_CONTINUE: u8 = 0x80;
+
+pub const P1_FINALIZE_FULL_MORE: u8 = 0x00;
+pub const P1_FINALIZE_FULL_LAST: u8 = 0x80;
+pub const P1_FINALIZE_FULL_CHANGEINFO: u8 = 0xFF;
+pub const P2_FINALIZE_FULL_DEFAULT: u8 = 0x00;
 
 pub const SW_PIN_REMAINING_ATTEMPTS: u16 = 0x63C0;
 pub const SW_INCORRECT_LENGTH: u16 = 0x6700;

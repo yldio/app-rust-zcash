@@ -1,3 +1,4 @@
+use alloc::string::String;
 use core2::io::Error as IoError;
 
 use ledger_device_sdk::hash::HashError;
@@ -20,7 +21,11 @@ pub enum ParserSourceError {
     Balance(BalanceError),
     Custom(&'static str),
     AppSW(AppSW),
-    SwapError { common_code: u8, app_code: u8 },
+    SwapError {
+        common_code: u8,
+        app_code: u8,
+        message: Option<String>,
+    },
     UserDenied,
 }
 
@@ -65,6 +70,7 @@ impl From<SwapError<SwapAppErrorCode>> for ParserSourceError {
         ParserSourceError::SwapError {
             common_code: e.common_code as u8,
             app_code: e.app_code.as_u8(),
+            message: e.message,
         }
     }
 }

@@ -100,7 +100,7 @@ pub struct TxContext<'a> {
     is_review_finished: bool,
 
     is_extra_header_data_set: bool,
-    is_finished: bool,
+    is_signing_finished: bool,
     pub tx_signing_state: TxSigningState,
 
     pub tx_info: TxInfo,
@@ -117,16 +117,12 @@ pub struct TxContext<'a> {
 
 // Implement constructor for TxInfo with default values
 impl<'s> TxContext<'s> {
-    pub fn new(swap_params: Option<&'s CreateTxParams>) -> TxContext<'s> {
-        Self::new_with_params(swap_params, Default::default())
-    }
-
-    fn new_with_params(swap_params: Option<&'s CreateTxParams>, mode: ParserMode) -> TxContext<'s> {
+    pub fn new(swap_params: Option<&'s CreateTxParams>, mode: ParserMode) -> TxContext<'s> {
         TxContext {
             is_review_finished: false,
 
             is_extra_header_data_set: false,
-            is_finished: false,
+            is_signing_finished: false,
             tx_signing_state: Default::default(),
 
             tx_info: Default::default(),
@@ -143,7 +139,7 @@ impl<'s> TxContext<'s> {
     #[inline(always)]
     pub fn reset(&mut self, mode: ParserMode) {
         let swap_params = self.swap_params;
-        *self = TxContext::new_with_params(swap_params, mode);
+        *self = TxContext::new(swap_params, mode);
     }
 
     pub fn set_transaction_trusted_input_idx(&mut self, idx: u32) {
@@ -156,8 +152,8 @@ impl<'s> TxContext<'s> {
     }
 
     // Get signing finished or rejected by user status
-    pub fn is_finished(&self) -> bool {
-        self.is_finished
+    pub fn is_signing_finished(&self) -> bool {
+        self.is_signing_finished
     }
 }
 
@@ -249,20 +245,19 @@ pub fn handler_hash_input_finalize_full(
                 ParserSourceError::AppSW(sw) => sw,
                 ParserSourceError::UserDenied => {
                     // User rejected output after review, mark transaction as finished
-                    ctx.is_finished = true;
-                    // FIXME: TODO: consider to reset TxContext on any error and for user rejection too
+                    ctx.is_signing_finished = true;
                     AppSW::Deny
                 }
                 ParserSourceError::SwapError {
                     common_code,
                     app_code,
+                    message,
                 } => {
-                    // TODO: improve swap error printing (add message)
                     error!(
-                        "Swap error with common code {} and app code {}",
-                        common_code, app_code
+                        "Swap error with common code {}, app code {}, message {:?}",
+                        common_code, app_code, message
                     );
-                    ctx.is_finished = true;
+                    ctx.is_signing_finished = true;
 
                     // Original app sends IncorrectData for any swap error, so we do the same
                     AppSW::IncorrectData
@@ -361,12 +356,11 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
         true,
     )?;
 
-    ctx.is_finished = true;
+    ctx.is_signing_finished = true;
 
     Ok(())
 }
 
-// TODO: split comm append and signature computation
 fn compute_signature_and_append(
     comm: &mut Comm,
     tx_full_hasher: &mut Blake2b_256,

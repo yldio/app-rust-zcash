@@ -193,9 +193,10 @@ pub fn check_swap_params(
     let swap_amount = u64::from_be_bytes(amount_bytes);
 
     if output.amount != swap_amount {
-        error!("Swap amount mismatch\n");
-        error!("Tx: {:?}", output.amount);
-        error!("Swap: {:?}", swap_amount);
+        error!(
+            "Swap amount mismatch\n Tx: {:?}, Swap: {:?}",
+            output.amount, swap_amount
+        );
         // Error detected, we return the error with detailed message in common SDK defined format
         return Err(SwapError::with_message(
             SwapErrorCommonCode::ErrorWrongAmount,
@@ -216,9 +217,7 @@ pub fn check_swap_params(
     let swap_fee = u64::from_be_bytes(fee_bytes);
 
     if fees != swap_fee {
-        error!("Swap fee mismatch\n");
-        error!("Tx: {:?}", fees);
-        error!("Swap: {:?}", swap_fee);
+        error!("Swap fee mismatch\n Tx: {:?}, Swap: {:?}", fees, swap_fee);
         // Error detected, we return the error with detailed message in common SDK defined format
         return Err(SwapError::with_message(
             SwapErrorCommonCode::ErrorWrongFees,
