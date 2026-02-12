@@ -296,22 +296,28 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
                 AppSW::Ok
             }
             Err(sw) => {
-                // Reset transaction context in case of error during transaction signing
-                if let Instruction::HashInputStart { .. }
-                | Instruction::HashFinalizeFull { .. }
-                | Instruction::HashSign = ins
-                {
-                    tx_ctx.reset(Default::default());
-                }
-
                 comm.reply(sw);
                 sw
             }
         };
         show_status_and_home_if_needed(&ins, &mut tx_ctx, &status);
 
+        // Cash the flag before potential ctx reset
+        let is_signing_finished = tx_ctx.is_signing_finished();
+
+        // Reset transaction context in case of error during transaction signing
+        if let (
+            Instruction::HashInputStart { .. }
+            | Instruction::HashFinalizeFull { .. }
+            | Instruction::HashSign,
+            true,
+        ) = (ins, status != AppSW::Ok)
+        {
+            tx_ctx.reset(Default::default());
+        }
+
         // In swap mode, exit after transaction is finished (signed or rejected)
-        if tx_ctx.swap_params.is_some() && tx_ctx.is_signing_finished() {
+        if tx_ctx.swap_params.is_some() && is_signing_finished {
             return status == AppSW::Ok;
         }
     }
