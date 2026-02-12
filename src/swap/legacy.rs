@@ -4,9 +4,8 @@ use ledger_secure_sdk_sys::{check_address_parameters_t, libargs_s__bindgen_ty_1,
 
 const DPATH_STAGE_SIZE: usize = 16;
 
-/// patched verion of swap::get_check_address_params to support legacy path
-/// differs in that path contain extra bit
-
+/// patched version of swap::get_check_address_params to support legacy path
+/// differs in the path, which contains extra byte
 pub fn get_check_address_params<
     const COIN_CONFIG_BUF_SIZE: usize,
     const ADDRESS_BUF_SIZE: usize,
