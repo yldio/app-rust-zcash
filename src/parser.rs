@@ -49,6 +49,21 @@ mod orchard;
 mod reader;
 mod sapling;
 
+
+#[repr(u8)]
+enum TrustedInputMode { Trusted = 0x01, Untrusted = 0x02 }
+
+impl TryFrom<u8> for TrustedInputMode {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x01 => Ok(TrustedInputMode::Trusted),
+            0x02 => Ok(TrustedInputMode::Untrusted),
+            _ => Err(())
+        }
+    }
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub enum ParserMode {
     #[default]
@@ -359,88 +374,114 @@ impl Parser {
         debug!("Parsing input for signature mode...");
 
         let trusted_input_mode = ok!(reader.read_u8());
-        if trusted_input_mode != 0x01 {
+
+        let Ok(trusted_input_mode) = trusted_input_mode.try_into() else {
             error!("Unsupported trusted input mode: {}", trusted_input_mode);
             return Err(ParserError::from_str("Unsupported trusted input mode"));
+        };
+
+        if let TrustedInputMode::Trusted = trusted_input_mode {
+
+            let trusted_input_len = ok!(reader.read_u8()) as usize;
+            if trusted_input_len != TRUSTED_INPUT_TOTAL_SIZE {
+                return Err(ParserError::from_str("Invalid trusted input size"));
+            }
+
+            if reader.remaining_len() < trusted_input_len {
+                return Err(ParserError::from_str("Not enough data for trusted input"));
+            }
+
+            let trusted_input = &reader.remaining_slice()[..trusted_input_len];
+            let trusted_input_hmac = &trusted_input[trusted_input_len - 8..][..8];
+            let mut computed_hmac = [0x00u8; 8];
+
+            // Compute HMAC-SHA256 signature over the trusted input
+            let mut hmac_sha256_signer = HmacSha256::new(
+                &Settings
+                    .trusted_input_key()
+                    .ok_or_else(|| ParserError::from_str("Trusted input key not set"))?,
+            );
+
+            ok!(hmac_sha256_signer.update(&trusted_input[0..trusted_input_len - 8]));
+            ok!(hmac_sha256_signer.finalize(&mut computed_hmac));
+
+            info!(
+                "=====> Computed trusted input HMAC: {}",
+                HexSlice(&computed_hmac)
+            );
+            info!(
+                "=====> Provided trusted input HMAC: {}",
+                HexSlice(trusted_input_hmac)
+            );
+            if !secure_memcmp(&computed_hmac, trusted_input_hmac) {
+                error!("Trusted input HMAC mismatch");
+                return Err(ParserError::from_str("Trusted input HMAC mismatch"));
+            }
+            info!("HMACs matched");
+
+            // Advance reader position
+            ok!({
+                let mut _magic = [0u8; 2];
+                reader.read_exact(&mut _magic)
+            });
+
+            ok!({
+                let mut _rand_bytes = [0u8; 2];
+                reader.read_exact(&mut _rand_bytes)
+            });
+
+            let prevout = ok!(OutPoint::read(&mut *reader));
+            info!("Previous outpoint: {:?}", prevout);
+            ok!(prevout.write(ctx.hashers.prevouts_hasher.as_writer()));
+
+            let amount = ok!({
+                let mut tmp = [0u8; 8];
+                ok!(reader.read_exact(&mut tmp));
+                // Hash amount
+                ok!(ctx.hashers.amounts_hasher.update(&tmp));
+                Zatoshis::from_nonnegative_i64_le_bytes(tmp)
+            });
+            ctx.tx_info.total_amount = ctx.tx_info.total_amount.saturating_add(amount.into_u64());
+            info!("Input amount: {:?}", amount);
+            info!("New amount: {}", ctx.tx_info.total_amount);
+
+            ok!({
+                let mut _hmac = [0u8; 8];
+                reader.read_exact(&mut _hmac)
+            });
+
+            if ctx.tx_state.is_tx_parsed_once {
+                ok!(ctx
+                    .hashers
+                    .prevouts_hasher
+                    .update(&amount.to_i64_le_bytes()));
+            }
+        } else {
+            let prevout = ok!(OutPoint::read(&mut *reader));
+            info!("Previous outpoint: {:?}", prevout);
+            ok!(prevout.write(ctx.hashers.prevouts_hasher.as_writer()));
+
+            let amount = ok!({
+                let mut tmp = [0u8; 8];
+                ok!(reader.read_exact(&mut tmp));
+                // Hash amount
+                ok!(ctx.hashers.amounts_hasher.update(&tmp));
+                Zatoshis::from_nonnegative_i64_le_bytes(tmp)
+            });
+            ctx.tx_info.total_amount = ctx.tx_info.total_amount.saturating_add(amount.into_u64());
+            info!("Input amount: {:?}", amount);
+            info!("New amount: {}", ctx.tx_info.total_amount);
+
+            if ctx.tx_state.is_tx_parsed_once {
+                ok!(ctx
+                    .hashers
+                    .prevouts_hasher
+                    .update(&amount.to_i64_le_bytes()));
+            }
         }
-
-        let trusted_input_len = ok!(reader.read_u8()) as usize;
-        if trusted_input_len != TRUSTED_INPUT_TOTAL_SIZE {
-            return Err(ParserError::from_str("Invalid trusted input size"));
-        }
-
-        if reader.remaining_len() < trusted_input_len {
-            return Err(ParserError::from_str("Not enough data for trusted input"));
-        }
-
-        let trusted_input = &reader.remaining_slice()[..trusted_input_len];
-        let trusted_input_hmac = &trusted_input[trusted_input_len - 8..][..8];
-        let mut computed_hmac = [0x00u8; 8];
-
-        // Compute HMAC-SHA256 signature over the trusted input
-        let mut hmac_sha256_signer = HmacSha256::new(
-            &Settings
-                .trusted_input_key()
-                .ok_or_else(|| ParserError::from_str("Trusted input key not set"))?,
-        );
-
-        ok!(hmac_sha256_signer.update(&trusted_input[0..trusted_input_len - 8]));
-        ok!(hmac_sha256_signer.finalize(&mut computed_hmac));
-
-        info!(
-            "=====> Computed trusted input HMAC: {}",
-            HexSlice(&computed_hmac)
-        );
-        info!(
-            "=====> Provided trusted input HMAC: {}",
-            HexSlice(trusted_input_hmac)
-        );
-        if !secure_memcmp(&computed_hmac, trusted_input_hmac) {
-            error!("Trusted input HMAC mismatch");
-            return Err(ParserError::from_str("Trusted input HMAC mismatch"));
-        }
-        info!("HMACs matched");
-
-        // Advance reader position
-        ok!({
-            let mut _magic = [0u8; 2];
-            reader.read_exact(&mut _magic)
-        });
-
-        ok!({
-            let mut _rand_bytes = [0u8; 2];
-            reader.read_exact(&mut _rand_bytes)
-        });
-
-        let prevout = ok!(OutPoint::read(&mut *reader));
-        info!("Previous outpoint: {:?}", prevout);
-        ok!(prevout.write(ctx.hashers.prevouts_hasher.as_writer()));
-
-        let amount = ok!({
-            let mut tmp = [0u8; 8];
-            ok!(reader.read_exact(&mut tmp));
-            // Hash amount
-            ok!(ctx.hashers.amounts_hasher.update(&tmp));
-            Zatoshis::from_nonnegative_i64_le_bytes(tmp)
-        });
-        ctx.tx_info.total_amount = ctx.tx_info.total_amount.saturating_add(amount.into_u64());
-        info!("Input amount: {:?}", amount);
-        info!("New amount: {}", ctx.tx_info.total_amount);
-
-        ok!({
-            let mut _hmac = [0u8; 8];
-            reader.read_exact(&mut _hmac)
-        });
 
         let script_size: usize = ok!(CompactSize::read_t(&mut *reader));
         info!("Script size: {}", script_size);
-
-        if ctx.tx_state.is_tx_parsed_once {
-            ok!(ctx
-                .hashers
-                .prevouts_hasher
-                .update(&amount.to_i64_le_bytes()));
-        }
 
         self.state = ParserState::ProcessInputScript {
             size: script_size,

@@ -164,7 +164,12 @@ pub fn check_output_displayable(
     CheckDispOutput::Displayable
 }
 
-pub fn check_bip44_compliance(path: &Bip32Path, is_change_path: bool) -> bool {
+pub enum Bip44CheckMode {
+    Full { is_change_path: bool },
+    OnlyCoinType,
+}
+
+pub fn check_bip44_compliance(path: &Bip32Path, mode: Bip44CheckMode) -> bool {
     const BIP44_PATH_LEN: usize = 5;
     const BIP44_PURPOSE_OFFSET: usize = 0;
     const BIP44_COIN_TYPE_OFFSET: usize = 1;
@@ -194,23 +199,64 @@ pub fn check_bip44_compliance(path: &Bip32Path, is_change_path: bool) -> bool {
         return false;
     }
 
-    let account = path[BIP44_ACCOUNT_OFFSET] & 0x7FFF_FFFF;
-    if account > MAX_BIP44_ACCOUNT_RECOMMENDED {
-        error!("Bad Bip44 account");
-        return false;
-    }
+    if let Bip44CheckMode::Full { is_change_path } = mode {
+        let account = path[BIP44_ACCOUNT_OFFSET] & 0x7FFF_FFFF;
+        if account > MAX_BIP44_ACCOUNT_RECOMMENDED {
+            error!("Bad Bip44 account");
+            return false;
+        }
 
-    let change = path[BIP44_CHANGE_OFFSET];
-    if change != if is_change_path { 1 } else { 0 } {
-        error!("Bad Bip44 change");
-        return false;
-    }
+        let change = path[BIP44_CHANGE_OFFSET];
+        if change != if is_change_path { 1 } else { 0 } {
+            error!("Bad Bip44 change");
+            return false;
+        }
 
-    let address_index = path[BIP44_ADDRESS_INDEX_OFFSET] & 0x7FFF_FFFF;
-    if address_index > MAX_BIP44_ADDRESS_INDEX_RECOMMENDED {
-        error!("Bad Bip44 address index");
-        return false;
+        let address_index = path[BIP44_ADDRESS_INDEX_OFFSET] & 0x7FFF_FFFF;
+        if address_index > MAX_BIP44_ADDRESS_INDEX_RECOMMENDED {
+            error!("Bad Bip44 address index");
+            return false;
+        }
     }
 
     true
 }
+
+
+/*
+/*
+Only enforce the structure or coin type for consumed UTXOs or a public address
+Returns 0 if the path is non compliant, or 1 if compliant
+*/
+unsigned char enforce_bip44_coin_type(unsigned char *bip32Path, bool for_pubkey) {
+    bip32_path_t bip32PathInt;
+    // No enforcement required
+    if (BIP44_COIN_TYPE == 0) {
+        return 1;
+    }
+    // Path is too short - always require a user validation if signing
+    if (bip32Path[0] < 2) {
+        return for_pubkey;
+    }
+
+    if (!parse_serialized_path(&bip32PathInt, bip32Path, MAX_BIP32_PATH_LENGTH)) {
+        return 1;
+    }
+
+    // Path is not compliant with BIP 44 or derivatives - valid if not signing
+    if (!(((bip32PathInt.path[BIP44_PURPOSE_OFFSET]^0x80000000) == 44 ||
+       (bip32PathInt.path[BIP44_PURPOSE_OFFSET]^0x80000000) == 49 ||
+       (bip32PathInt.path[BIP44_PURPOSE_OFFSET]^0x80000000) == 84))) {
+        return for_pubkey;
+    }
+
+    if  (((bip32PathInt.path[BIP44_COIN_TYPE_OFFSET]^0x80000000) == BIP44_COIN_TYPE) ||
+        ((bip32PathInt.path[BIP44_COIN_TYPE_OFFSET]^0x80000000) == BIP44_COIN_TYPE_2)) {
+        // Valid BIP 44 path
+        return 1;
+    }
+    // Everything else needs a user validation
+    return 0;
+}
+ */
+
