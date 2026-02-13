@@ -135,6 +135,7 @@ pub enum SwapAppErrorCode {
     FailedToSerializeAddress = 0x04,
     FailedToDeriveAddress = 0x05,
     UnexpectedExternalOutputCount = 0x06,
+    BufferOverflow = 0x07,
 }
 
 impl SwapAppErrorCodeTrait for SwapAppErrorCode {
@@ -435,9 +436,10 @@ fn get_printable_amount(
     // Use SDK helper to format amount with decimals
     let amount_str = uint256_to_float(&amount_u256, ZCASH_DECIMALS as usize);
 
-    // Format as "ZEC {value}" using stack-allocated ArrayString
+    // Format as "{value} ZEC " using stack-allocated ArrayString
     let mut printable: ArrayString<40> = ArrayString::<40>::new();
-    let _ = write!(&mut printable, "{} {}", ZCASH_TICKER, amount_str.as_str());
+    write!(&mut printable, "{} {}", amount_str.as_str(), ZCASH_TICKER)
+        .map_err(|_| SwapAppErrorCode::BufferOverflow)?;
 
     debug!("Formatted amount: {:?} ", printable.as_str());
 
