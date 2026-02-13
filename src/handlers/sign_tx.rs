@@ -30,7 +30,7 @@ use zcash_protocol::consensus::BranchId;
 use crate::log::{debug, error, info};
 use crate::parser::{OutputParser, Parser, ParserCtx, ParserMode, ParserSourceError};
 use crate::utils::{bip32_path::Bip32Path, extended_public_key::ExtendedPublicKey};
-use crate::utils::{check_bip44_compliance, HexSlice};
+use crate::utils::{check_bip44_compliance, Bip44CheckMode, HexSlice};
 use crate::AppSW;
 
 #[derive(Default)]
@@ -221,7 +221,12 @@ pub fn handler_hash_input_finalize_full(
 
         info!("Change pk hash: {}", HexSlice(&ctx.tx_info.change_pk_hash));
 
-        if !check_bip44_compliance(&path, true) {
+        if !check_bip44_compliance(
+            &path,
+            Bip44CheckMode::Full {
+                is_change_path: true,
+            },
+        ) {
             error!("Change address path not Bip44 compliant");
             return Err(AppSW::ConditionsOfUseNotSatisfied);
         }
@@ -342,7 +347,7 @@ pub fn handler_hash_sign(comm: &mut Comm, ctx: &mut TxContext) -> Result<(), App
     let path_data = &data[..path_len];
     let path: Bip32Path = path_data.try_into()?;
 
-    if !check_bip44_compliance(&path, false) {
+    if !check_bip44_compliance(&path, Bip44CheckMode::OnlyCoinType) {
         error!("Output address path not Bip44 compliant");
         return Err(AppSW::ConditionsOfUseNotSatisfied);
     }

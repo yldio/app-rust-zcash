@@ -13,6 +13,7 @@ use core2::io::Read;
 use ledger_device_sdk::hash::blake2::Blake2b_256;
 use ledger_device_sdk::hash::HashInit;
 use ledger_device_sdk::hmac::{sha2::Sha2_256 as HmacSha256, HMACInit};
+use num_enum::TryFromPrimitive;
 use zcash_encoding::CompactSize;
 use zcash_primitives::encoding::ReadBytesExt;
 use zcash_primitives::transaction::txid::{
@@ -48,6 +49,22 @@ mod error;
 mod orchard;
 mod reader;
 mod sapling;
+
+#[derive(Debug, TryFromPrimitive)]
+#[repr(u8)]
+enum TrustedInputMode {
+    Trusted = 0x01,
+    Untrusted = 0x02,
+}
+
+impl TrustedInputMode {
+    fn read(reader: &mut ByteReader<'_>) -> Result<Self, ParserError> {
+        let value = ok!(reader.read_u8());
+        value
+            .try_into()
+            .map_err(|_| ParserError::from_str("Unsupported trusted input mode"))
+    }
+}
 
 #[derive(Debug, Default, PartialEq)]
 pub enum ParserMode {
@@ -358,11 +375,14 @@ impl Parser {
     ) -> Result<(), ParserError> {
         debug!("Parsing input for signature mode...");
 
-        let trusted_input_mode = ok!(reader.read_u8());
-        if trusted_input_mode != 0x01 {
-            error!("Unsupported trusted input mode: {}", trusted_input_mode);
-            return Err(ParserError::from_str("Unsupported trusted input mode"));
-        }
+        let trusted_input_mode = TrustedInputMode::read(reader)?;
+
+        let TrustedInputMode::Trusted = trusted_input_mode else {
+            error!("Untrusted input mode is not supported for signing");
+            return Err(ParserError::from_str(
+                "Untrusted input mode is not supported for signing",
+            ));
+        };
 
         let trusted_input_len = ok!(reader.read_u8()) as usize;
         if trusted_input_len != TRUSTED_INPUT_TOTAL_SIZE {
