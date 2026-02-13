@@ -96,7 +96,7 @@ def copy_build_output(clone_dir: str, dest_dir: str):
 def clone_and_pull_exchange():
     clone_or_pull(APP_EXCHANGE_URL, APP_EXCHANGE_CLONE_DIR)
 def build_and_copy_exchange():
-    build_app(APP_EXCHANGE_CLONE_DIR, flags="TESTING=1 TEST_PUBLIC_KEY=1 TRUSTED_NAME_TEST_KEY=1 DEBUG=1")
+    build_app(APP_EXCHANGE_CLONE_DIR, flags="")
     copy_build_output(APP_EXCHANGE_CLONE_DIR, APP_EXCHANGE_DIR)
 
 # ==== Build app-ethereum ====
@@ -105,3 +105,11 @@ def clone_and_pull_ethereum():
 def build_and_copy_ethereum():
     build_app(APP_ETHEREUM_CLONE_DIR, flags="COIN=ethereum CHAIN=ethereum CAL_TEST_KEY=1 DOMAIN_NAME_TEST_KEY=1 SET_PLUGIN_TEST_KEY=1 NFT_TEST_KEY=1 TRUSTED_NAME_TEST_KEY=1")
     copy_build_output(APP_ETHEREUM_CLONE_DIR, APP_ETHEREUM_DIR)
+
+for device in  nanox nanosp flex stax apex_p; do   echo "Running tests for $device";   make TARGET=$device TESTING=1 TEST_PUBLIC_KEY=1 TRUSTED_NAME_TEST_KEY=1 DEBUG=1; done
+
+
+make TARGET=nanos2 COIN=ethereum CHAIN=ethereum CAL_TEST_KEY=1 DOMAIN_NAME_TEST_KEY=1 SET_PLUGIN_TEST_KEY=1 NFT_TEST_KEY=1 TRUSTED_NAME_TEST_KEY=1; 
+
+
+make TARGET=nanos2 TESTING=1 TEST_PUBLIC_KEY=1 TRUSTED_NAME_TEST_KEY=1 DEBUG=1;

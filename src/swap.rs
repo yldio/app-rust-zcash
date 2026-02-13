@@ -41,8 +41,10 @@
 //! 2. **GET_PRINTABLE_AMOUNT**: Format amounts for display (fees, totals)
 //! 3. **SIGN_TRANSACTION**: Sign the transaction (UI bypass - already validated by Exchange)
 
+use alloc::vec::Vec;
 use arrayvec::ArrayString;
 use core::fmt::Write;
+use core::str;
 use ledger_device_sdk::libcall::LibCallCommand;
 use ledger_device_sdk::libcall::{
     self,
@@ -54,9 +56,18 @@ use ledger_device_sdk::libcall::{
     SwapAppErrorCodeTrait,
 };
 
+#[cfg(feature = "legacy_path")]
+mod legacy;
+
+#[cfg(feature = "legacy_path")]
+pub use legacy::get_check_address_params;
+
+#[cfg(not(feature = "legacy_path"))]
+pub use swap::get_check_address_params;
+
+use crate::handlers::sign_tx::TxOutput;
 use crate::{
     consts::{ZCASH_DECIMALS, ZCASH_TICKER},
-    handlers::sign_tx::Tx,
     log::{debug, error, info},
     utils::{
         base58_address::{Base58Address, ToBase58Address},
@@ -123,6 +134,8 @@ pub enum SwapAppErrorCode {
 
     FailedToSerializeAddress = 0x04,
     FailedToDeriveAddress = 0x05,
+    UnexpectedExternalOutputCount = 0x06,
+    BufferOverflow = 0x07,
 }
 
 impl SwapAppErrorCodeTrait for SwapAppErrorCode {
@@ -132,7 +145,6 @@ impl SwapAppErrorCodeTrait for SwapAppErrorCode {
     }
 }
 
-//  --8<-- [start:check_swap_params]
 /// This function performs a strict validation of the transaction to be signed
 /// against the reference transaction parameters provided by the Exchange app.
 /// It checks that:
@@ -149,12 +161,31 @@ impl SwapAppErrorCodeTrait for SwapAppErrorCode {
 /// - Destination address has invalid UTF-8 (DestinationDecodeFail)
 /// - Destination address hex decode fails (DestinationDecodeFail)
 /// - Destination address doesn't match (ErrorWrongDestination)
-#[allow(unused)]
 pub fn check_swap_params(
     params: &CreateTxParams,
-    tx: &Tx,
+    outputs: &[TxOutput],
+    fees: u64,
 ) -> Result<(), SwapError<SwapAppErrorCode>> {
     debug!("Swap mode detected");
+
+    // In swap operation we can only have 1 "external" output
+    let external_outputs: Vec<&TxOutput> = outputs.iter().filter(|out| !out.is_change).collect();
+    if external_outputs.len() != 1 {
+        error!(
+            "Unexpected number of external outputs: {}",
+            external_outputs.len()
+        );
+        return Err(SwapError::with_message(
+            SwapErrorCommonCode::ErrorGeneric,
+            SwapAppErrorCode::UnexpectedExternalOutputCount,
+            format!(
+                "Expected exactly 1 external output, found {}",
+                external_outputs.len()
+            ),
+        ));
+    }
+
+    let output = external_outputs[0];
 
     // Validate amount
     // Parse amount (u64 from big-endian bytes, right aligned in 16-byte buffer)
@@ -168,60 +199,69 @@ pub fn check_swap_params(
     })?;
     let swap_amount = u64::from_be_bytes(amount_bytes);
 
-    //  --8<-- [start:SwapError_example]
-    if tx.value != swap_amount {
-        debug!("Swap amount mismatch\n");
-        debug!("Tx: {:?}", tx.value);
-        debug!("Swap: {:?}", swap_amount);
+    if output.amount != swap_amount {
+        error!(
+            "Swap amount mismatch\n Tx: {:?}, Swap: {:?}",
+            output.amount, swap_amount
+        );
         // Error detected, we return the error with detailed message in common SDK defined format
         return Err(SwapError::with_message(
             SwapErrorCommonCode::ErrorWrongAmount,
             SwapAppErrorCode::Default,
-            format!("Amount tx {} != swap {}", tx.value, swap_amount),
+            format!("Amount tx {} != swap {}", output.amount, swap_amount),
         ));
     }
-    //  --8<-- [end:SwapError_example]
+
+    // Validate fees
+    // Parse fee (u64 from big-endian bytes, right aligned in 16-byte buffer)
+    let start = params.fee_amount.len() - 8;
+    let fee_bytes: [u8; 8] = params.fee_amount[start..].try_into().map_err(|_| {
+        SwapError::without_message(
+            SwapErrorCommonCode::ErrorWrongFees,
+            SwapAppErrorCode::AmountCastFail,
+        )
+    })?;
+    let swap_fee = u64::from_be_bytes(fee_bytes);
+
+    if fees != swap_fee {
+        error!("Swap fee mismatch\n Tx: {:?}, Swap: {:?}", fees, swap_fee);
+        // Error detected, we return the error with detailed message in common SDK defined format
+        return Err(SwapError::with_message(
+            SwapErrorCommonCode::ErrorWrongFees,
+            SwapAppErrorCode::Default,
+            format!("Fees tx {} != swap {}", fees, swap_fee),
+        ));
+    }
 
     // Validate destination
-    let dest_str =
-        core::str::from_utf8(&params.dest_address[..params.dest_address_len]).map_err(|_| {
+    let swap_dest =
+        str::from_utf8(&params.dest_address[..params.dest_address_len]).map_err(|_| {
             SwapError::with_message(
                 SwapErrorCommonCode::ErrorWrongDestination,
                 SwapAppErrorCode::DestinationDecodeFail,
-                "Failed to read destination hex".to_string(),
+                "Failed to UTF-8 decode destination str".to_string(),
             )
         })?;
-    let dest_hex = dest_str.strip_prefix("0x").unwrap_or(dest_str);
 
-    let mut swap_dest = [0u8; 20];
-    if hex::decode_to_slice(dest_hex, &mut swap_dest).is_err() {
-        debug!("Swap dest hex decode fail\n");
-        return Err(SwapError::with_message(
-            SwapErrorCommonCode::ErrorWrongDestination,
-            SwapAppErrorCode::DestinationDecodeFail,
-            format!("Failed to decode destination hex: {}", dest_hex),
-        ));
-    }
-
-    if tx.to != swap_dest {
+    if output.address != swap_dest {
         error!(
             "Swap destination mismatch\n Tx: {:?}. Swap {:?}",
-            &tx.to, &swap_dest
+            &output.address, &swap_dest
         );
-        // Only build hex strings for error message (not on happy path)
-        let tx_hex = hex::encode(tx.to);
-        let swap_hex = hex::encode(swap_dest);
         return Err(SwapError::with_message(
             SwapErrorCommonCode::ErrorWrongDestination,
             SwapAppErrorCode::Default,
-            format!("Destination mismatch: tx {} != swap {}", tx_hex, swap_hex),
+            format!(
+                "Destination mismatch: tx {:?} != swap {:?}",
+                output.address, swap_dest
+            ),
         ));
     }
 
     info!("Swap validation success, bypassing UI\n");
+
     Ok(())
 }
-//  --8<-- [end:check_swap_params]
 
 // --8<-- [start:swap_main]
 /// Main entry point when app is called as a library by the Exchange app.
@@ -241,7 +281,7 @@ pub fn swap_main(arg0: u32) {
     match cmd {
         LibCallCommand::SwapCheckAddress => {
             debug!("Received SwapCheckAddress command\n");
-            let mut params = swap::get_check_address_params(arg0);
+            let mut params = get_check_address_params(arg0);
             let res = check_address(&params).unwrap_or_else(|e| {
                 debug!("Swap error: {:?}", e);
                 false
@@ -260,7 +300,6 @@ pub fn swap_main(arg0: u32) {
                 amount_str.as_str(),
             ))
         }
-
         LibCallCommand::SwapSignTransaction => {
             debug!("Received SwapSignTransaction command\n");
             let mut params = swap::sign_tx_params(arg0);
@@ -327,13 +366,16 @@ fn check_address(params: &CheckAddressParams) -> Result<bool, SwapAppErrorCode> 
     let received_address = core::str::from_utf8(&params.ref_address[..params.ref_address_len])
         .map_err(|_| SwapAppErrorCode::FailedToSerializeAddress)?;
 
-    // Compare hex strings
+    // Compare addresses
     let derived_address = base58_address.as_str();
     if derived_address == received_address {
         info!("Check address successful, derived and received addresses match\n");
         Ok(true) // Success
     } else {
-        error!("Derived and received addresses do NOT match!\n Derived address: {:?}. Reference (hex): {:?} \n", derived_address,received_address);
+        error!(
+            "Derived and received addresses do NOT match!\n Derived address: {:?}. Reference (hex): {:?} \n",
+            derived_address, received_address
+        );
 
         Ok(false) // Failure
     }
@@ -394,9 +436,10 @@ fn get_printable_amount(
     // Use SDK helper to format amount with decimals
     let amount_str = uint256_to_float(&amount_u256, ZCASH_DECIMALS as usize);
 
-    // Format as "ZEC {value}" using stack-allocated ArrayString
+    // Format as "{value} ZEC " using stack-allocated ArrayString
     let mut printable: ArrayString<40> = ArrayString::<40>::new();
-    let _ = write!(&mut printable, "{} {}", ZCASH_TICKER, amount_str.as_str());
+    write!(&mut printable, "{} {}", amount_str.as_str(), ZCASH_TICKER)
+        .map_err(|_| SwapAppErrorCode::BufferOverflow)?;
 
     debug!("Formatted amount: {:?} ", printable.as_str());
 

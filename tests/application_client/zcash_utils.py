@@ -2,7 +2,7 @@ import hashlib
 from io import BytesIO
 from typing import Optional, Literal
 
-import base58
+import base58 # type: ignore[import-not-found]
 
 UINT64_MAX: int = 2**64-1
 UINT32_MAX: int = 2**32-1
@@ -19,7 +19,7 @@ def ripemd160(data: bytes) -> bytes:
     #    h.update(data)
     #    return h.digest()
     # fallback
-    from Crypto.Hash import RIPEMD160 # pylint: disable=C0415
+    from Crypto.Hash import RIPEMD160 # type: ignore # pylint: disable=C0415
     h = RIPEMD160.new()
     h.update(data)
     return h.digest()

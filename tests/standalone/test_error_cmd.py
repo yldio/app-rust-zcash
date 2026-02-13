@@ -21,16 +21,16 @@ def test_bad_ins(backend):
 # Ensure the app returns an error when a bad P1 or P2 is used
 def test_wrong_p1p2(backend):
     with pytest.raises(ExceptionRAPDU) as e:
-        backend.exchange(cla=CLA, ins=InsType.GET_VERSION, p1=P1.P1_START + 1, p2=0x01)
+        backend.exchange(cla=CLA, ins=InsType.GET_VERSION, p1=P1.P1_FIRST + 1, p2=0x01)
     assert e.value.status == Errors.SW_WRONG_P1P2
     with pytest.raises(ExceptionRAPDU) as e:
-        backend.exchange(cla=CLA, ins=InsType.GET_VERSION, p1=P1.P1_START, p2=0x02)
+        backend.exchange(cla=CLA, ins=InsType.GET_VERSION, p1=P1.P1_FIRST, p2=0x02)
     assert e.value.status == Errors.SW_WRONG_P1P2
     with pytest.raises(ExceptionRAPDU) as e:
-        backend.exchange(cla=CLA, ins=InsType.GET_APP_NAME, p1=P1.P1_START + 1, p2=0x01)
+        backend.exchange(cla=CLA, ins=InsType.GET_APP_NAME, p1=P1.P1_FIRST + 1, p2=0x01)
     assert e.value.status == Errors.SW_WRONG_P1P2
     with pytest.raises(ExceptionRAPDU) as e:
-        backend.exchange(cla=CLA, ins=InsType.GET_APP_NAME, p1=P1.P1_START, p2=0x02)
+        backend.exchange(cla=CLA, ins=InsType.GET_APP_NAME, p1=P1.P1_FIRST, p2=0x02)
     assert e.value.status == Errors.SW_WRONG_P1P2
 
 # Ensure the app returns an error when a bad data length is used

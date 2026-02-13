@@ -78,7 +78,7 @@ pub fn handler_get_public_key(comm: &mut Comm, display: bool) -> Result<(), AppS
     debug!("Address: {}", address_str);
 
     // Don't encode chain code length, it's always 32 bytes
-    comm.append(&extended_public_key.clone().chain_code);
+    comm.append(&extended_public_key.chain_code.clone());
 
     debug!("Chain Code: {:02X?}", extended_public_key.chain_code);
 

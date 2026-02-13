@@ -1,14 +1,19 @@
+use alloc::string::String;
 use core2::io::Error as IoError;
 
 use ledger_device_sdk::hash::HashError;
 use ledger_device_sdk::hmac::HMACError;
+use ledger_device_sdk::libcall::swap::SwapError;
+use ledger_device_sdk::libcall::SwapAppErrorCodeTrait;
 
 use zcash_protocol::value::BalanceError;
 
+use crate::swap::SwapAppErrorCode;
 use crate::AppSW;
 
-#[derive(Debug)]
+// NOTE: `#[allow(dead_code)]` due to false positive in current nightly toolchain
 #[allow(dead_code)]
+#[derive(Debug)]
 pub enum ParserSourceError {
     Io(IoError),
     Hash(HashError),
@@ -16,6 +21,11 @@ pub enum ParserSourceError {
     Balance(BalanceError),
     Custom(&'static str),
     AppSW(AppSW),
+    SwapError {
+        common_code: u8,
+        app_code: u8,
+        message: Option<String>,
+    },
     UserDenied,
 }
 
@@ -52,6 +62,16 @@ impl From<&'static str> for ParserSourceError {
 impl From<AppSW> for ParserSourceError {
     fn from(e: AppSW) -> Self {
         ParserSourceError::AppSW(e)
+    }
+}
+
+impl From<SwapError<SwapAppErrorCode>> for ParserSourceError {
+    fn from(e: SwapError<SwapAppErrorCode>) -> Self {
+        ParserSourceError::SwapError {
+            common_code: e.common_code as u8,
+            app_code: e.app_code.as_u8(),
+            message: e.message,
+        }
     }
 }
 
