@@ -19,8 +19,11 @@ use core::str::FromStr;
 use ledger_device_sdk::io;
 
 pub fn handler_get_version(comm: &mut io::Comm) -> Result<(), AppSW> {
+    const ARCH_ID: u8 = 0x30;
+
     if let Some((major, minor, patch)) = parse_version_string(env!("CARGO_PKG_VERSION")) {
-        comm.append(&[major, minor, patch]);
+        let legacy_version_format = [0x38, ARCH_ID, major, minor, patch, 1, 0, 0x03];
+        comm.append(&legacy_version_format);
         Ok(())
     } else {
         Err(AppSW::VersionParsingFail)

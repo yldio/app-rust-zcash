@@ -35,10 +35,13 @@ mod settings;
 mod swap;
 mod utils;
 
+use core::mem;
+
 use app_ui::menu::ui_menu_main;
 use handlers::{
     get_public_key::handler_get_public_key, get_version::handler_get_version, sign_tx::TxContext,
 };
+use ledger_device_sdk::nbgl::StatusType;
 use ledger_device_sdk::{io::StatusWords, libcall::swap::CreateTxParams};
 use ledger_device_sdk::{
     io::{ApduHeader, Comm, Reply},
@@ -46,18 +49,17 @@ use ledger_device_sdk::{
     random::rand_bytes,
 };
 
-ledger_device_sdk::set_panic!(panic_handler);
-
-// Required for using String, Vec, format!...
-extern crate alloc;
-
-use ledger_device_sdk::nbgl::StatusType;
-
+use crate::consts::{
+    P1_FINALIZE_FULL_CHANGEINFO, P1_FINALIZE_FULL_LAST, P1_FINALIZE_FULL_MORE, P1_FIRST,
+    P1_GET_PUBLIC_KEY_DISPLAY, P1_GET_PUBLIC_KEY_NO_DISPLAY, P1_HASH_INPUT_START_FIRST,
+    P1_HASH_INPUT_START_NEXT, P1_NEXT, P2_FINALIZE_FULL_DEFAULT, P2_HASH_INPUT_START_CONTINUE,
+    P2_HASH_INPUT_START_SAPLING,
+};
 use crate::{
     consts::{
         INS_GET_FIRMWARE_VERSION, INS_GET_TRUSTED_INPUT, INS_GET_WALLET_PUBLIC_KEY,
         INS_HASH_INPUT_FINALIZE_FULL, INS_HASH_INPUT_START, INS_HASH_SIGN, INS_SIGN_MESSAGE,
-        P2_CONTINUE_HASHING, P2_OPERATION_TYPE_SAPLING, ZCASH_CLA,
+        ZCASH_CLA,
     },
     handlers::{
         get_trusted_input::handler_get_trusted_input,
@@ -68,9 +70,10 @@ use crate::{
     settings::Settings,
 };
 
-pub const P1_FIRST: u8 = 0x00;
-pub const P1_NEXT: u8 = 0x80;
-pub const FINALIZE_P1_CHANGEINFO: u8 = 0xFF;
+// Required for using String, Vec, format!...
+extern crate alloc;
+
+ledger_device_sdk::set_panic!(panic_handler);
 
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -148,26 +151,33 @@ impl TryFrom<ApduHeader> for Instruction {
     fn try_from(value: ApduHeader) -> Result<Self, Self::Error> {
         match (value.ins, value.p1, value.p2) {
             (INS_GET_FIRMWARE_VERSION, 0, 0) => Ok(Instruction::GetVersion),
-            (INS_GET_WALLET_PUBLIC_KEY, 0 | 1, 0) => Ok(Instruction::GetPubkey {
-                display: value.p1 != 0,
+            (
+                INS_GET_WALLET_PUBLIC_KEY,
+                P1_GET_PUBLIC_KEY_NO_DISPLAY | P1_GET_PUBLIC_KEY_DISPLAY,
+                0,
+            ) => Ok(Instruction::GetPubkey {
+                display: value.p1 == P1_GET_PUBLIC_KEY_DISPLAY,
             }),
-            (INS_GET_TRUSTED_INPUT, p1, _) => Ok(Instruction::GetTrustedInput {
+            (INS_GET_TRUSTED_INPUT, p1, 0) => Ok(Instruction::GetTrustedInput {
                 first: p1 == P1_FIRST,
                 next: p1 == P1_NEXT,
             }),
             (
                 INS_HASH_INPUT_START,
-                p1,
-                p2 @ (P2_OPERATION_TYPE_SAPLING | P2_CONTINUE_HASHING), // Only support Sapling
+                P1_HASH_INPUT_START_FIRST | P1_HASH_INPUT_START_NEXT,
+                P2_HASH_INPUT_START_SAPLING | P2_HASH_INPUT_START_CONTINUE,
             ) => Ok(Instruction::HashInputStart {
-                first: p1 == P1_FIRST,
-                continue_hashing: p1 == P1_FIRST && p2 == P2_CONTINUE_HASHING,
+                first: value.p1 == P1_HASH_INPUT_START_FIRST,
+                continue_hashing: value.p1 == P1_HASH_INPUT_START_FIRST
+                    && value.p2 == P2_HASH_INPUT_START_CONTINUE,
             }),
-            (INS_HASH_INPUT_FINALIZE_FULL, 0x00 | 0x80 | FINALIZE_P1_CHANGEINFO, 0) => {
-                Ok(Instruction::HashFinalizeFull {
-                    is_change: value.p1 == FINALIZE_P1_CHANGEINFO,
-                })
-            }
+            (
+                INS_HASH_INPUT_FINALIZE_FULL,
+                P1_FINALIZE_FULL_MORE | P1_FINALIZE_FULL_LAST | P1_FINALIZE_FULL_CHANGEINFO,
+                P2_FINALIZE_FULL_DEFAULT,
+            ) => Ok(Instruction::HashFinalizeFull {
+                is_change: value.p1 == P1_FINALIZE_FULL_CHANGEINFO,
+            }),
             (INS_HASH_SIGN, 0, 0) => Ok(Instruction::HashSign),
             (INS_SIGN_MESSAGE, p1, 0) => Ok(Instruction::SignMessage {
                 first: p1 == P1_FIRST,
@@ -187,6 +197,7 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
     if tx_ctx.swap_params.is_some() {
         return;
     }
+
     #[cfg_attr(
         any(target_os = "nanox", target_os = "nanosplus"),
         allow(unused_variables)
@@ -219,7 +230,7 @@ fn show_status_and_home_if_needed(ins: &Instruction, tx_ctx: &mut TxContext, sta
     }
 }
 
-fn try_init_trusted_input_key_storage() {
+fn init_trusted_input_key_storage() {
     if Settings.trusted_input_key().is_none() {
         let mut rng = [0u8; 32];
         rand_bytes(&mut rng);
@@ -261,17 +272,17 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
     let mut comm = Comm::new().set_expected_cla(ZCASH_CLA);
     init_comm(&mut comm);
 
-    try_init_trusted_input_key_storage();
+    init_trusted_input_key_storage();
 
-    debug!("App started");
-
-    let mut tx_ctx = if let Some(params) = swap_params {
-        TxContext::new_with_swap(params, Default::default())
+    if swap_params.is_some() {
+        debug!("App started in SWAP mode");
     } else {
-        TxContext::new(Default::default())
-    };
+        debug!("App started");
+    }
 
-    debug!("TxContext size {} bytes", core::mem::size_of_val(&tx_ctx));
+    let mut tx_ctx = TxContext::new(swap_params, Default::default());
+
+    debug!("TxContext size {} bytes", mem::size_of_val(&tx_ctx));
 
     if swap_params.is_none() {
         tx_ctx.home = ui_menu_main(&mut comm);
@@ -281,9 +292,9 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
     loop {
         let ins: Instruction = comm.next_command();
 
-        debug!("Received apdu {:?}", ins);
+        debug!("Received APDU {:?}", ins);
 
-        let _status = match handle_apdu(&mut comm, &ins, &mut tx_ctx) {
+        let status = match handle_apdu(&mut comm, &ins, &mut tx_ctx) {
             Ok(()) => {
                 comm.reply_ok();
                 AppSW::Ok
@@ -293,7 +304,26 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
                 sw
             }
         };
-        show_status_and_home_if_needed(&ins, &mut tx_ctx, &_status);
+        show_status_and_home_if_needed(&ins, &mut tx_ctx, &status);
+
+        // Cache the flag before potential ctx reset
+        let is_signing_finished = tx_ctx.is_signing_finished();
+
+        // Reset transaction context in case of error during transaction signing
+        if let (
+            Instruction::HashInputStart { .. }
+            | Instruction::HashFinalizeFull { .. }
+            | Instruction::HashSign,
+            true,
+        ) = (ins, status != AppSW::Ok)
+        {
+            tx_ctx.reset(Default::default());
+        }
+
+        // In swap mode, exit after transaction is finished (signed or rejected)
+        if tx_ctx.swap_params.is_some() && is_signing_finished {
+            return status == AppSW::Ok;
+        }
     }
 }
 

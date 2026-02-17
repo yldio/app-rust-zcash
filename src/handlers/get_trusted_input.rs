@@ -24,8 +24,8 @@ pub fn handler_get_trusted_input(
     let mut data = comm.get_data().map_err(|_| AppSW::WrongApduLength)?;
 
     if first {
-        info!("Init TX context");
-        *ctx = TxContext::new(ParserMode::TrustedInput);
+        info!("Reset TX context");
+        ctx.reset(ParserMode::TrustedInput);
 
         let transaction_trusted_input_idx = read_u32(data, Endianness::Big, false)?;
         data = &data[4..];
