@@ -29,6 +29,8 @@ mod handlers {
 }
 
 mod consts;
+mod ec;
+mod ffi;
 mod log;
 mod parser;
 mod settings;
@@ -270,6 +272,8 @@ pub fn normal_main(swap_params: Option<&CreateTxParams>) -> bool {
     init_comm(&mut comm);
 
     init_trusted_input_key_storage();
+
+    ec::run_ec_tests();
 
     if swap_params.is_some() {
         debug!("App started in SWAP mode");
