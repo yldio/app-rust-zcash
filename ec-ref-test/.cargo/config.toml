@@ -1,0 +1,3 @@
+# Override parent workspace settings: run tests on the host, not on the Ledger device target.
+[build]
+target = "x86_64-unknown-linux-gnu"

@@ -1,0 +1,11 @@
+[package]
+name = "ec-ref-test"
+version = "0.1.0"
+edition = "2021"
+description = "Host-native reference tests for Jubjub, Pallas, Vesta curve arithmetic"
+
+[dev-dependencies]
+ff = "0.13"
+group = "0.13"
+jubjub = "0.10"
+pasta_curves = "0.5"

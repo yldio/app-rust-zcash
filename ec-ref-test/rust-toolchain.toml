@@ -1,0 +1,5 @@
+[toolchain]
+# Use stable Rust for host-native tests (overrides parent's nightly toolchain).
+# This also disables the parent's [unstable] build-std setting, which would
+# cause duplicate lang item errors when building for the host target.
+channel = "stable"
