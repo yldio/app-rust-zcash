@@ -37,6 +37,7 @@ mod settings;
 mod swap;
 mod tx;
 mod utils;
+mod zip32;
 
 use core::mem;
 
