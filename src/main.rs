@@ -26,6 +26,7 @@ mod handlers {
     pub mod get_version;
     pub mod sign_msg;
     pub mod sign_tx;
+    pub mod zip32_orchard;
 }
 
 mod consts;
@@ -63,12 +64,13 @@ use crate::{
     consts::{
         INS_GET_FIRMWARE_VERSION, INS_GET_TRUSTED_INPUT, INS_GET_WALLET_PUBLIC_KEY,
         INS_HASH_INPUT_FINALIZE_FULL, INS_HASH_INPUT_START, INS_HASH_SIGN, INS_SIGN_MESSAGE,
-        ZCASH_CLA,
+        INS_ZIP32_ORCHARD_DERIVE, ZCASH_CLA,
     },
     handlers::{
         get_trusted_input::handler_get_trusted_input,
         sign_msg::handler_sign_msg,
         sign_tx::{handler_hash_input_finalize_full, handler_hash_input_start, handler_hash_sign},
+        zip32_orchard::handler_zip32_orchard_derive,
     },
     log::{debug, error},
     settings::Settings,
@@ -136,6 +138,7 @@ pub enum Instruction {
     HashFinalizeFull { is_change: bool },
     HashSign,
     SignMessage { first: bool, next: bool },
+    Zip32OrchardDerive,
 }
 
 impl TryFrom<ApduHeader> for Instruction {
@@ -187,6 +190,7 @@ impl TryFrom<ApduHeader> for Instruction {
                 first: p1 == P1_FIRST,
                 next: p1 == P1_NEXT,
             }),
+            (INS_ZIP32_ORCHARD_DERIVE, 0, 0) => Ok(Instruction::Zip32OrchardDerive),
             (_, _, _) => {
                 if value.p1 != 0 || value.p2 != 0 {
                     return Err(AppSW::WrongP1P2);
@@ -347,6 +351,7 @@ fn handle_apdu(comm: &mut Comm, ins: &Instruction, ctx: &mut TxContext) -> Resul
         }
         Instruction::HashSign => handler_hash_sign(comm, ctx),
         Instruction::SignMessage { first, next } => handler_sign_msg(comm, ctx, *first, *next),
+        Instruction::Zip32OrchardDerive => handler_zip32_orchard_derive(comm),
     }
 }
 

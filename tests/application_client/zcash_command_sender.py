@@ -65,6 +65,7 @@ class InsType(IntEnum):
     HASH_INPUT_START = 0x44
     HASH_INPUT_FINALIZE_FULL = 0x4A
     HASH_SIGN = 0x48
+    ZIP32_ORCHARD_DERIVE = 0xB8
 
 
 class Errors(IntEnum):
@@ -367,6 +368,22 @@ class ZcashCommandSender:
         tx += write_varint(0)
 
         return tx
+
+    def zip32_orchard_derive(self, path: str) -> RAPDU:
+        """Send INS_ZIP32_ORCHARD_DERIVE and return raw RAPDU.
+
+        On success (SW=0x9000) the response data is:
+            sk[32] || chain_code[32]
+
+        On failure the response data is empty and SW carries the error code.
+        """
+        return self.backend.exchange(
+            cla=CLA,
+            ins=InsType.ZIP32_ORCHARD_DERIVE,
+            p1=0x00,
+            p2=0x00,
+            data=pack_derivation_path(path),
+        )
 
     def get_async_response(self) -> Optional[RAPDU]:
         return self.backend.last_async_response

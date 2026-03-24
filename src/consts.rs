@@ -30,6 +30,7 @@ pub const INS_IMPORT_PRIVATE_KEY: u8 = 0xB0;
 pub const INS_GET_PUBLIC_KEY: u8 = 0xB2;
 pub const INS_DERIVE_BIP32_KEY: u8 = 0xB4;
 pub const INS_SIGNVERIFY_IMMEDIATE: u8 = 0xB6;
+pub const INS_ZIP32_ORCHARD_DERIVE: u8 = 0xB8;
 pub const INS_GET_RANDOM: u8 = 0xC0;
 pub const INS_GET_ATTESTATION: u8 = 0xC2;
 pub const INS_GET_FIRMWARE_VERSION: u8 = 0xC4;

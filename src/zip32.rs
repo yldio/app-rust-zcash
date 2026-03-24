@@ -89,3 +89,66 @@ pub fn zip32_orchard_derive(
 
     if err == 0 { Ok(()) } else { Err(err) }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+pub mod tests {
+    use super::*;
+
+    /// Standard Zcash Orchard path: m/32'/133'/0'
+    /// Hardened indices have bit 31 set.
+    const ORCHARD_PATH: [u32; 3] = [
+        32  | 0x8000_0000,
+        133 | 0x8000_0000,
+        0   | 0x8000_0000,
+    ];
+
+    /// Derivation succeeds and produces a non-zero spending key.
+    pub fn test_zip32_orchard_derive_smoke() {
+        let mut sk = [0u8; ZIP32_SK_SIZE];
+        zip32_orchard_derive(&ORCHARD_PATH, &mut sk, None).unwrap();
+        assert_ne!(sk, [0u8; ZIP32_SK_SIZE]);
+    }
+
+    /// Derivation is deterministic: same path yields the same sk.
+    pub fn test_zip32_orchard_derive_deterministic() {
+        let mut sk1 = [0u8; ZIP32_SK_SIZE];
+        let mut sk2 = [0u8; ZIP32_SK_SIZE];
+        zip32_orchard_derive(&ORCHARD_PATH, &mut sk1, None).unwrap();
+        zip32_orchard_derive(&ORCHARD_PATH, &mut sk2, None).unwrap();
+        assert_eq!(sk1, sk2);
+    }
+
+    /// Chain code output is non-zero and consistent across calls.
+    pub fn test_zip32_orchard_derive_chain_code() {
+        let mut sk1 = [0u8; ZIP32_SK_SIZE];
+        let mut sk2 = [0u8; ZIP32_SK_SIZE];
+        let mut cc1 = [0u8; ZIP32_CHAIN_CODE_SIZE];
+        let mut cc2 = [0u8; ZIP32_CHAIN_CODE_SIZE];
+        zip32_orchard_derive(&ORCHARD_PATH, &mut sk1, Some(&mut cc1)).unwrap();
+        zip32_orchard_derive(&ORCHARD_PATH, &mut sk2, Some(&mut cc2)).unwrap();
+        assert_ne!(cc1, [0u8; ZIP32_CHAIN_CODE_SIZE]);
+        assert_eq!(sk1, sk2);
+        assert_eq!(cc1, cc2);
+    }
+
+    /// Different account indices yield different spending keys.
+    pub fn test_zip32_orchard_derive_different_accounts() {
+        let path_acc0: [u32; 3] = [44 | 0x8000_0000, 133 | 0x8000_0000, 0 | 0x8000_0000];
+        let path_acc1: [u32; 3] = [44 | 0x8000_0000, 133 | 0x8000_0000, 1 | 0x8000_0000];
+        let mut sk0 = [0u8; ZIP32_SK_SIZE];
+        let mut sk1 = [0u8; ZIP32_SK_SIZE];
+        zip32_orchard_derive(&path_acc0, &mut sk0, None).unwrap();
+        zip32_orchard_derive(&path_acc1, &mut sk1, None).unwrap();
+        assert_ne!(sk0, sk1);
+    }
+
+    pub fn run_zip32_tests() {
+        test_zip32_orchard_derive_smoke();
+        test_zip32_orchard_derive_deterministic();
+        test_zip32_orchard_derive_chain_code();
+        test_zip32_orchard_derive_different_accounts();
+    }
+}
