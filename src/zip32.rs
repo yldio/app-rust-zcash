@@ -8,6 +8,18 @@
 //! * `0x550B` – PIN not validated
 //! * `0x4215` – forbidden derivation (app manifest lacks `HDKEY_DERIVE_AUTH_ZIP32`)
 //! * `0x3308` – cryptographic computation failure
+//!
+//!  * @retval 0x0000 Success
+//! * @retval 0x550B PIN must be validated
+//! * @retval 0x4214 Unknown caller identity
+//! * @retval 0x521D Integrity check failure
+//! * @retval 0x420E Unsupported path length
+//! * @retval 0x4210 Invalid path format
+//! * @retval 0x4213 Unknown parameter
+//! * @retval 0x4215 Forbidden derivation
+//! * @retval 0x3308 Cryptographic computation failure
+//! * @retval 0x4212 Buffer overflow
+//! * @retval 0x420E Invalid parameter
 
 use crate::ec::CxErr;
 
@@ -19,7 +31,8 @@ use crate::ec::CxErr;
 const HDKEY_DERIVE_MODE_ZIP32_ORCHARD: u32 = 0x20;
 
 /// Pallas curve identifier (reused from `crate::ec`).
-const CX_CURVE_PALLAS: u32 = crate::ec::CX_CURVE_PALLAS;
+//const CX_CURVE_PALLAS: u32 = crate::ec::CX_CURVE_PALLAS;
+const CX_CURVE_NONE: u32 = ledger_device_sdk::sys::CX_CURVE_NONE as u32;
 
 /// Byte length of an Orchard spending key (sk) and chain code.
 pub const ZIP32_SK_SIZE: usize = 32;
@@ -72,10 +85,12 @@ pub fn zip32_orchard_derive(
         None => (core::ptr::null_mut(), 0),
     };
 
+    //let path = [0x8000_0020, 0x8000_0085, 0x8000_0000]; // m/32'/133'/0' --- IGNORE ---
+
     let err = unsafe {
         sys_hdkey_derive(
             HDKEY_DERIVE_MODE_ZIP32_ORCHARD,
-            CX_CURVE_PALLAS,
+            CX_CURVE_NONE,
             path.as_ptr(),
             path.len(),
             sk.as_mut_ptr(),

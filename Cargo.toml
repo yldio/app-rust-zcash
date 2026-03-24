@@ -44,7 +44,7 @@ opt-level = 'z'
 lto = 'fat'
 
 [features]
-default = ["ledger_device_sdk/nano_nbgl", "legacy_path"]
+default = ["ledger_device_sdk/nano_nbgl", "ledger_device_sdk/sys", "legacy_path"]
 
 # Enables debug logging
 debug = ["ledger_device_sdk/debug", "ledger_device_sdk/log_debug"]
@@ -52,8 +52,8 @@ debug = ["ledger_device_sdk/debug", "ledger_device_sdk/log_debug"]
 legacy_path = []
 
 [package.metadata.ledger]
-curve = ["secp256k1"]
-path = ["44'/133'"]
+curve = ["secp256k1", "jubjub"]
+path = ["44'/133'", "32'/133'"]
 name = "Zcash"
 flags = "0x800"
 

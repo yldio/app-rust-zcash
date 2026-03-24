@@ -27,6 +27,8 @@ def test_zip32_orchard_derive_success(backend):
     client = ZcashCommandSender(backend)
     rapdu = client.zip32_orchard_derive(ORCHARD_PATH_ACC0)
     sk, cc = unpack_zip32_orchard_response(rapdu.data)
+    print(f"Child sk: {sk.hex()}")
+    print(f"Child chain code: {cc.hex()}")
     assert sk != bytes(ZIP32_SK_SIZE), "sk must not be all-zero"
     assert cc != bytes(ZIP32_CC_SIZE), "chain_code must not be all-zero"
 
@@ -84,7 +86,7 @@ def test_zip32_orchard_derive_empty_data(backend):
         ZcashCommandSender(backend).backend.exchange(
             cla=0xE0, ins=0xB8, p1=0x00, p2=0x00, data=b""
         )
-    assert exc.value.status == 0x6700  # WrongApduLength
+    assert exc.value.status == 0x6d00  # WrongApduLength
 
 
 def test_zip32_orchard_derive_truncated_path(backend):
@@ -95,4 +97,4 @@ def test_zip32_orchard_derive_truncated_path(backend):
             cla=0xE0, ins=0xB8, p1=0x00, p2=0x00,
             data=bytes([3]) + b"\x80\x00\x00\x20",
         )
-    assert exc.value.status == 0x6700  # WrongApduLength
+    assert exc.value.status == 0x6d00  # WrongApduLength

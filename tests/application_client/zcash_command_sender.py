@@ -65,7 +65,7 @@ class InsType(IntEnum):
     HASH_INPUT_START = 0x44
     HASH_INPUT_FINALIZE_FULL = 0x4A
     HASH_SIGN = 0x48
-    ZIP32_ORCHARD_DERIVE = 0xB8
+    ZIP32_ORCHARD_DERIVE = 0x4F
 
 
 class Errors(IntEnum):
